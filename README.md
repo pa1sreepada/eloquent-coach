@@ -128,7 +128,9 @@ Environment variables:
 ## Privacy & data
 
 * Audio is processed in memory and never written to disk.
-* Transcripts, insights and metrics are stored locally in `backend/eloquent_coach.db` and `backend/transcripts/`. Both are git-ignored — **never commit them**.
+* **Audio is never written to disk** — it is streamed into the ASR engine in memory and discarded once transcribed.
+* Only text is persisted, in the local SQLite database `backend/eloquent_coach.db`: the transcript, the live coaching cards, speaking metrics and the executive summary. Export any meeting as Markdown from the Reports view.
+* `backend/eloquent_coach.db` (and the legacy `backend/transcripts/` folder from older versions) are git-ignored — **never commit them**.
 * The backend binds to `127.0.0.1` only, and CORS is restricted to the local app.
 * The only network calls are model downloads (Hugging Face, first run) and your configured LLM endpoint.
 

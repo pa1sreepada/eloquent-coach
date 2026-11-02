@@ -26,6 +26,7 @@ interface MeetingDetails extends Meeting {
     future_focus_pct?: number;
   }[];
   strategic_alternatives?: string;
+  transcript_filepath?: string | null;
 }
 
 export default function ReportsView({ initialMeetingId }: { initialMeetingId?: number | null }) {
@@ -431,13 +432,15 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, color: 'var(--text-secondary)' }}>
                     <FileText size={16} /> Raw Transcript
                   </h3>
-                  <button 
-                    className="btn btn-outline"
-                    onClick={() => fetch(`http://127.0.0.1:8000/meetings/${selectedMeetingId}/open-folder`, { method: 'POST' })}
-                    style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem', height: 'auto', border: '1px solid var(--accent-primary)', color: 'var(--accent-primary)' }}
-                  >
-                    Open Folder
-                  </button>
+                  {meetingDetails.transcript_filepath && (
+                    <button 
+                      className="btn btn-outline"
+                      onClick={() => fetch(`http://127.0.0.1:8000/meetings/${selectedMeetingId}/open-folder`, { method: 'POST' })}
+                      style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem', height: 'auto', border: '1px solid var(--accent-primary)', color: 'var(--accent-primary)' }}
+                    >
+                      Open Folder
+                    </button>
+                  )}
                 </div>
                 
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', paddingRight: '1rem' }}>

@@ -216,12 +216,12 @@ def _load_meeting(meeting_id: int) -> dict | None:
         if not m:
             return None
         return {"mode": m.mode or "General", "agenda": m.agenda or "", "prep_notes": m.prep_notes or "",
-                "path": m.transcript_filepath, "start": m.start_time}
+                "start": m.start_time}
     finally:
         db.close()
 
 
-def _persist_final(meeting_id: int, path: str | None, start: datetime.datetime | None, ev: dict) -> None:
+def _persist_final(meeting_id: int, start: datetime.datetime | None, ev: dict) -> None:
     db = SessionLocal()
     try:
         ts = (start + datetime.timedelta(milliseconds=ev["t0_ms"])) if start else None
@@ -231,10 +231,6 @@ def _persist_final(meeting_id: int, path: str | None, start: datetime.datetime |
         db.commit()
     finally:
         db.close()
-    if path:
-        s = ev["t0_ms"] // 1000
-        with open(path, "a") as f:
-            f.write(f"[{s // 3600:02d}:{s // 60 % 60:02d}:{s % 60:02d}] {ev['speaker']}: {ev['text']}\n")
 
 
 def _persist_card(meeting_id: int, card: dict) -> None:
@@ -295,7 +291,7 @@ class MeetingSession:
         payload = ev.to_json()
         bus.publish(self.meeting_id, payload)
         if ev.type == "final":
-            self._spawn(asyncio.to_thread(_persist_final, self.meeting_id, self.meta["path"],
+            self._spawn(asyncio.to_thread(_persist_final, self.meeting_id,
                                           self.meta["start"], payload))
             # Telemetry is sub-ms; the LLM call inside is spawned, never awaited here.
             await self.coach.on_final(ev.speaker, ev.text, ev.t0_ms, ev.t1_ms)

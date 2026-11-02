@@ -108,29 +108,14 @@ def read_root():
 def start_meeting(mode: str = "General", agenda: str = "", prep_notes: str = "", db: Session = Depends(get_db)):
     now = datetime.datetime.utcnow()
     timestamp_str = now.strftime("%Y-%m-%d %H:%M")
-    
-    transcripts_dir = os.path.join(os.path.dirname(__file__), "transcripts")
-    if not os.path.exists(transcripts_dir):
-        os.makedirs(transcripts_dir)
-        
-    filename = f"Meeting_{now.strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-    filepath = os.path.join(transcripts_dir, filename)
-    
-    new_meeting = Meeting(title=f"Meeting - {timestamp_str}", start_time=now, transcript_filepath=filepath, mode=mode, agenda=agenda, prep_notes=prep_notes)
+
+    # Text-only persistence: transcript, cards, metrics and summary live in the DB.
+    # No audio and no per-meeting .txt files are written.
+    new_meeting = Meeting(title=f"Meeting - {timestamp_str}", start_time=now, mode=mode, agenda=agenda, prep_notes=prep_notes)
     db.add(new_meeting)
     db.commit()
     db.refresh(new_meeting)
-    
-    with open(filepath, "w") as f:
-        f.write(f"--- {new_meeting.title} ---\n")
-        f.write(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Mode: {mode}\n")
-        if agenda:
-            f.write(f"Agenda / Objectives: {agenda}\n")
-        if prep_notes:
-            f.write(f"Prep Notes & References: {prep_notes}\n")
-        f.write("\n")
-        
+
     return {"meeting_id": new_meeting.id, "status": "started"}
 
 @app.post("/meetings/{meeting_id}/end")
