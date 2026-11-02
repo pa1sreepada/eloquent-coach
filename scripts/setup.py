@@ -3,6 +3,7 @@
 
     python3 scripts/setup.py              # backend venv + npm packages
     python3 scripts/setup.py --models     # also pre-download the ASR models (~700 MB)
+    python3 scripts/setup.py --import-models PATH   # copy existing GGUF files instead (e.g. Handy's models folder)
     python3 scripts/setup.py --recreate   # rebuild backend/venv from scratch
 
 Everything is fetched from public registries (PyPI, npm, Hugging Face); nothing is vendored.
@@ -67,6 +68,8 @@ def check_node() -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--models", action="store_true", help="pre-download Parakeet + Silero VAD GGUF models")
+    ap.add_argument("--import-models", metavar="PATH", nargs="+",
+                    help="copy already-downloaded GGUF model files/folders instead of downloading")
     ap.add_argument("--recreate", action="store_true", help="delete and rebuild backend/venv")
     ap.add_argument("--dev", action="store_true", help="also install dev tools (pip-audit)")
     args = ap.parse_args()
@@ -84,6 +87,8 @@ def main() -> None:
 
     run([npm, "ci" if (APP / "package-lock.json").exists() else "install", "--no-audit", "--no-fund"], cwd=APP)
 
+    if args.import_models:
+        run([sys.executable, ROOT / "scripts" / "import_models.py", *args.import_models])
     if args.models:
         run([py, "-c", "from asr_service import resolve_model_paths; print(*resolve_model_paths(), sep='\\n')"],
             cwd=BACKEND)

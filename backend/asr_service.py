@@ -19,14 +19,12 @@ from typing import Awaitable, Callable, Literal
 import numpy as np
 import transcribe_cpp
 
+from model_files import ASR_FILE, ASR_REPO, MODELS_DIR, VAD_FILE, VAD_REPO
+
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16_000
 
-ASR_REPO = "handy-computer/parakeet-unified-en-0.6b-gguf"
-ASR_FILE = "parakeet-unified-en-0.6b-Q8_0.gguf"
-VAD_REPO = "handy-computer/silero-vad-v6.2-gguf"
-VAD_FILE = "silero-vad-v6.2-F32.gguf"
 
 # Published (left, chunk, right) buffered-streaming configs for parakeet-unified.
 # Lookahead latency = chunk + right. Ordered fastest → cheapest.
@@ -44,13 +42,25 @@ def engine_backend(device: str) -> str:
     return "cpu" if device == "cpu" else "auto"
 
 
+IMPORT_HINT = ("Download from Hugging Face failed for {name}. If you already have the file (e.g. from Handy), "
+               "import it with:  python3 scripts/import_models.py <file-or-folder>  (copies into {dir})")
+
+
 def resolve_model_paths(asr_path: str | None = None, vad_path: str | None = None) -> tuple[str, str]:
-    """Return local paths, downloading into the Hugging Face cache on first use."""
+    """Return local model paths. Order: argument → env var → MODELS_DIR → HF cache → HF download."""
     from huggingface_hub import hf_hub_download, try_to_load_from_cache
 
     def fetch(repo: str, name: str) -> str:
+        local = os.path.join(MODELS_DIR, name)
+        if os.path.isfile(local):
+            return local
         cached = try_to_load_from_cache(repo, name)
-        return cached if isinstance(cached, str) else hf_hub_download(repo, name)
+        if isinstance(cached, str):
+            return cached
+        try:
+            return hf_hub_download(repo, name)
+        except Exception as e:  # noqa: BLE001 - auth/403/network/SSL all need the same remedy
+            raise RuntimeError(IMPORT_HINT.format(name=name, dir=MODELS_DIR) + f"\nCause: {e}") from e
 
     asr = asr_path or os.environ.get("ELOQUENT_ASR_MODEL") or fetch(ASR_REPO, ASR_FILE)
     vad = vad_path or os.environ.get("ELOQUENT_VAD_MODEL") or fetch(VAD_REPO, VAD_FILE)

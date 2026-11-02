@@ -31,3 +31,6 @@ release/
 .vscode/*
 !.vscode/extensions.json
 *.local
+
+# --- Locally imported model weights (scripts/import_models.py) ---
+backend/models/
