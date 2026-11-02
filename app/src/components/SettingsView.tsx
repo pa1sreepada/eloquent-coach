@@ -5,7 +5,7 @@ import AsrSettingsPanel, { type AsrSettings } from './AsrSettingsPanel';
 interface Settings extends AsrSettings {
   llm_api_url: string;
   llm_model: string;
-  system_prompt: string;
+  coach_instructions: string;
   filler_words: string;
   custom_jargon: string;
 }
@@ -14,7 +14,7 @@ export default function SettingsView() {
   const [settings, setSettings] = useState<Settings>({
     llm_api_url: '',
     llm_model: '',
-    system_prompt: '',
+    coach_instructions: '',
     asr_profile: 'auto',
     asr_backend: 'auto',
     asr_adaptive: 'true',
@@ -164,12 +164,13 @@ export default function SettingsView() {
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>System Prompt</label>
+            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Coaching Instructions (optional)</label>
             <textarea 
-              name="system_prompt"
-              value={settings.system_prompt}
+              name="coach_instructions"
+              value={settings.coach_instructions}
               onChange={handleChange}
-              rows={6}
+              rows={4}
+              placeholder="e.g. I tend to over-explain; push me to lead with the answer. Our team says 'north star' for the annual goal."
               style={{ 
                 width: '100%', 
                 padding: '0.8rem', 
@@ -180,6 +181,9 @@ export default function SettingsView() {
                 resize: 'vertical'
               }}
             />
+            <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
+              Added to every live coaching request. The built-in coaching prompts are tuned per meeting mode; use this for personal preferences only.
+            </small>
           </div>
 
           <div style={{ marginTop: '1.5rem' }}>

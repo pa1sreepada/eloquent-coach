@@ -77,6 +77,7 @@ class RealtimeConfig:
     asr_adaptive: bool = True        # runtime governor steps profiles down/up on measured lag
     filler_words: list[str] = field(default_factory=lambda: list(DEFAULT_FILLERS))
     vocabulary: list[str] = field(default_factory=list)
+    coach_instructions: str = ""
 
     @classmethod
     def load(cls) -> "RealtimeConfig":
@@ -94,6 +95,7 @@ class RealtimeConfig:
             asr_adaptive=(c.get("asr_adaptive", "true").lower() not in ("false", "0", "off")),
             filler_words=split(c.get("filler_words")) or list(DEFAULT_FILLERS),
             vocabulary=split(c.get("custom_jargon")),
+            coach_instructions=c.get("coach_instructions", ""),
         )
 
     @property
@@ -262,7 +264,7 @@ class MeetingSession:
         self.llm = OpenAICompatClient(cfg.llm_api_url, model=cfg.llm_model)
         self.coach = CoachingEngine(
             self.llm, self._emit, mode=meta["mode"], agenda=meta["agenda"], prep_notes=meta["prep_notes"],
-            telemetry=SpeechTelemetry(fillers=cfg.filler_words),
+            instructions=cfg.coach_instructions, telemetry=SpeechTelemetry(fillers=cfg.filler_words),
             coordinator=LlmCoordinator(self.controller, llm_local=cfg.llm_local,
                                        me_speaking=lambda: self.asr.in_utterance("Me")))
         self._bg: set[asyncio.Task] = set()

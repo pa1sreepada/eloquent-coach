@@ -88,7 +88,7 @@ Then open **Settings → Audio Devices** and pick your microphone and the loopba
 
 ### 2. Connect an LLM
 
-Start LM Studio's local server (or Ollama) with a small instruct model — e.g. `google/gemma-4-e4b`, Qwen 3 4B/8B, or Llama 3.x 8B. In **Settings → Local LLM Engine** set the API URL and, optionally, the model ID. When the LLM runs on the same GPU as the ASR, the adaptive planner automatically reserves headroom for it.
+Start LM Studio's local server (or Ollama) with a small instruct model — e.g. `google/gemma-4-e4b`, Qwen 3 4B/8B, or Llama 3.x 8B. In **Settings → Local LLM Engine** set the API URL and, optionally, the model ID. *Coaching Instructions* (optional) lets you add personal preferences, such as "push me to lead with the answer", to every live coaching request. When the LLM runs on the same GPU as the ASR, the adaptive planner automatically reserves headroom for it.
 
 ### 3. Run a meeting
 

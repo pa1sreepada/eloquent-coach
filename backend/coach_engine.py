@@ -16,7 +16,10 @@ from telemetry import COMMITMENT_MARKERS, ME, OBJECTION_MARKERS, OWNER_MARKERS, 
 
 logger = logging.getLogger(__name__)
 
+# All kinds the HUD can render; the live model is offered LIVE_KINDS ("answer"/"bio" were
+# near-duplicates of "context" and only confused small models).
 CARD_KINDS = ["question", "counterpoint", "alignment", "bluf", "context", "risk", "answer", "bio"]
+LIVE_KINDS = ["question", "counterpoint", "alignment", "bluf", "risk", "context"]
 
 CARD_SCHEMA = {
     "type": "object",
@@ -26,9 +29,9 @@ CARD_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string", "enum": CARD_KINDS},
-                    "headline": {"type": "string", "description": "<= 12 words, speakable verbatim"},
-                    "body": {"type": "string", "description": "<= 25 words of support, or empty"},
+                    "kind": {"type": "string", "enum": LIVE_KINDS},
+                    "headline": {"type": "string", "description": "<= 12 words, said verbatim by the leader"},
+                    "body": {"type": "string", "description": "<= 20 words: the supporting point, or empty"},
                 },
                 "required": ["kind", "headline", "body"],
             },
@@ -37,32 +40,53 @@ CARD_SCHEMA = {
     "required": ["cards"],
 }
 
-SYSTEM_PROMPT = """You are a discreet executive communication coach whispering into a leader's heads-up display during a live meeting.
-Speaker "Me" is the leader. Produce at most 2 cards that the leader can use in the next 10 seconds.
+# Static on purpose: an unchanging system prompt lets llama.cpp / LM Studio reuse its KV cache.
+SYSTEM_PROMPT = """You are a live executive communication coach. You whisper cards onto the heads-up display of a senior leader during a meeting. "Me" is the leader; "Participant" is anyone else (possibly several people). The leader glances at a card and says the headline aloud within 10 seconds.
 
 Card kinds:
-- question: one high-leverage Socratic question to ask the room.
-- counterpoint: a crisp, respectful strategic counterpoint to the last claim.
-- alignment: a cue that converts discussion into a decision (owner, date, success metric) or names shared ground.
-- bluf: a bottom-line-first reframe of what the leader is trying to say (Pyramid Principle: answer, then 2-3 supports).
-- context: a fact from PREP NOTES relevant to what was just said.
-- risk: an unaddressed risk, dependency, or drift from the agenda.
-- answer / bio: facts or people from PREP NOTES only.
-Grounding: never state a number, name, capability or commitment that does not appear verbatim in TRANSCRIPT or PREP NOTES.
-If you lack a fact, phrase the card as a question instead of an assertion.
+- question: one open, high-leverage question that moves the room forward by surfacing an assumption, trade-off, decision criterion, risk or owner. Never yes/no.
+- counterpoint: briefly acknowledge the other view, then a respectful, specific challenge or trade-off.
+- alignment: turn talk into a decision (who, what, by when, how measured) or name the shared goal that bridges a disagreement.
+- bluf: bottom line first (Pyramid Principle). The headline is the answer or recommendation; the body gives the 1-2 strongest supporting facts.
+- risk: a concrete unaddressed risk, dependency or drift from the agenda, phrased as something the leader can say.
+- context: a fact from PREP NOTES that matters right now.
 
-Rules: headline <= 12 words, written exactly as the leader would say it. body <= 25 words or empty.
-Prefer the card kind requested by TRIGGER. Return {"cards": []} if nothing would materially help.
-Respond with JSON only."""
+Quality bar:
+1. Specific: reuse this conversation's names, numbers and terms. A card that would fit any meeting is useless; return no card instead.
+2. Grounded: every fact (number, name, date, capability, commitment, claim about the product, market or competitors) must appear in TRANSCRIPT or PREP NOTES and stay attached to what it describes there. Never invent one. If a needed fact is missing, ask for it as a question.
+3. Executive voice: confident and plain. No hedges ("I think", "maybe", "just"), no filler, no jargon the room hasn't used.
+4. Fresh: do not repeat or paraphrase anything in ALREADY SHOWN.
+
+Output: at most 2 cards; one strong card is usually best. headline <= 12 words (short beats complete), exactly as the leader would say it. body <= 20 words, or "". Return {"cards": []} when nothing clearly helps. JSON only."""
+
+# Per-mode lens, matched by keyword against the meeting mode chosen in the UI.
+MODE_FOCUS = [
+    (("fireside", "guest"), "Me is the host interviewing a guest. Draw out specific stories: the moment, the decision, what they'd do differently, and the transferable lesson. Prefer 'question' cards; never debate the guest."),
+    (("board", "investor"), "Board/investor audience. Answer bottom-line-first with numbers from PREP NOTES, anticipate diligence on growth, burn and risk, and keep answers short."),
+    (("1:1", "feedback"), "Me is the manager. Name specific behavior and impact, ask more than tell, and close on an agreed next step."),
+    (("negotiation", "deal"), "Uncover interests and decision criteria before conceding. Trade, never give; anchor on value; don't split the difference; label emotions."),
+    (("conflict",), "De-escalate: acknowledge the feeling, restate the other side fairly, name the shared goal, then move to options."),
+    (("okr", "delivery"), "Accountability: status vs target, root cause of slips, recovery plan, owner and new date, and blockers to escalate."),
+]
+DEFAULT_FOCUS = "Drive to a decision: options, trade-offs, owner and date."
+
+
+def mode_focus(mode: str) -> str:
+    m = (mode or "").lower()
+    return next((focus for keys, focus in MODE_FOCUS if any(k in m for k in keys)), DEFAULT_FOCUS)
+
 
 TRIGGER_GUIDANCE = {
-    "question_to_me": "A participant just asked the leader a question. Give a 'bluf' card answering bottom-line-first.",
-    "objection": "A participant pushed back. Give a 'counterpoint' or 'alignment' card that acknowledges and redirects.",
-    "my_turn": "The leader has been listening for a while. Give a 'question' card that raises the level of the discussion.",
-    "commitment_no_owner": "A commitment was made without an owner or date. Give an 'alignment' card that locks it down.",
-    "monologue": "The leader has been talking too long. Give a 'bluf' card to land the point and hand the floor back.",
-    "heartbeat": "Periodic check. Only produce a card if there is a clear, high-value opportunity.",
+    "question_to_me": "A participant just asked the leader a question. Give a 'bluf' card: the answer in the headline, the strongest supporting facts in the body. If the facts needed are missing, give an honest bottom line and name what's needed to decide.",
+    "objection": "A participant just pushed back. Give a 'counterpoint' that acknowledges their concern in a few words and reframes around the trade-off, or a 'question' that surfaces what would change their mind.",
+    "my_turn": "The leader has been listening for a while. Give one 'question' card that raises the level: the decision, trade-off or hidden assumption behind what was just said.",
+    "commitment_no_owner": "A commitment was just made with no named owner or date. Give an 'alignment' card that pins down who owns it and by when.",
+    "monologue": "The leader has been talking for over 90 seconds. Give a 'bluf' card: the headline lands their main point in one sentence; the body is a short question that hands the floor back.",
+    "heartbeat": "Periodic check; nothing specific triggered. Return a card only for a clear opportunity: an unowned decision, an unaddressed risk, agenda drift, a question nobody answered, or (when hosting) a story worth probing deeper. Otherwise return no cards.",
 }
+
+MAX_TRANSCRIPT_CHARS = 2500
+MAX_HEADLINE_WORDS = 18   # hard cap; anything longer can't be read at a glance
 
 TRIGGER_PRIORITY = {"question_to_me": 1, "objection": 1, "commitment_no_owner": 2,
                     "monologue": 2, "my_turn": 2, "heartbeat": 3}
@@ -129,6 +153,7 @@ class OpenAICompatClient:
         self.base_url = base_url.rstrip("/")
         self._model = model
         self._http = httpx.AsyncClient(timeout=timeout_s)
+        self._no_reasoning = True   # cards are latency-critical; thinking only adds delay
 
     async def model_id(self) -> str:
         if self._model is None:
@@ -148,7 +173,13 @@ class OpenAICompatClient:
             "max_tokens": max_tokens,
             "response_format": {"type": "json_schema", "json_schema": {"name": "cards", "schema": schema}},
         }
+        if self._no_reasoning:
+            payload["reasoning_effort"] = "none"
         res = await self._http.post(f"{self.base_url}/chat/completions", json=payload)
+        if res.status_code in (400, 422) and self._no_reasoning:   # server doesn't know the field
+            self._no_reasoning = False
+            payload.pop("reasoning_effort")
+            res = await self._http.post(f"{self.base_url}/chat/completions", json=payload)
         res.raise_for_status()
         content = res.json()["choices"][0]["message"]["content"] or ""
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
@@ -215,13 +246,15 @@ class LlmCoordinator:
 
 class CoachingEngine:
     def __init__(self, llm: OpenAICompatClient, emit: Emit, *, mode: str = "General Executive",
-                 agenda: str = "", prep_notes: str = "", telemetry: SpeechTelemetry | None = None,
+                 agenda: str = "", prep_notes: str = "", instructions: str = "",
+                 telemetry: SpeechTelemetry | None = None,
                  context_window_s: int = 120, coordinator: LlmCoordinator | None = None):
         self.llm = llm
         self.emit = emit
         self.mode = mode
         self.agenda = agenda
         self.prep_notes = prep_notes
+        self.instructions = instructions.strip()
         self.telemetry = telemetry or SpeechTelemetry()
         self.policy = TriggerPolicy()
         self.context_window_ms = context_window_s * 1000
@@ -229,6 +262,7 @@ class CoachingEngine:
         self._inflight_priority = 99
         self._inflight_trigger = ""
         self._recent_headlines: list[set[str]] = []
+        self._shown: list[str] = []
         self.coord = coordinator or LlmCoordinator()
         self._deferred: tuple[str, float] | None = None   # (trigger, monotonic time)
 
@@ -276,18 +310,27 @@ class CoachingEngine:
         self._inflight = asyncio.create_task(self._generate(trigger, prio))
 
     def _build_prompt(self, trigger: str) -> str:
+        # Stable context first (better prompt-cache reuse), the task last (best instruction-following).
         hist = list(self.telemetry.history)
         cutoff = (hist[-1].t1_ms if hist else 0) - self.context_window_ms
         transcript = "\n".join(f"{u.speaker}: {u.text}" for u in hist if u.t1_ms >= cutoff)
+        if len(transcript) > MAX_TRANSCRIPT_CHARS:
+            transcript = "…" + transcript[-MAX_TRANSCRIPT_CHARS:].split("\n", 1)[-1]
         snap = self.telemetry.snapshot()
-        parts = [f"MODE: {self.mode}", f"TRIGGER: {trigger} - {TRIGGER_GUIDANCE[trigger]}"]
+        parts = [f"MODE: {self.mode}\nFOCUS: {mode_focus(self.mode)}"]
         if self.agenda:
             parts.append(f"AGENDA: {self.agenda}")
+        if self.instructions:
+            parts.append(f"LEADER PREFERENCES: {self.instructions}")
         if self.prep_notes:
             parts.append("PREP NOTES:\n" + select_prep_notes(self.prep_notes, transcript[-1500:]))
-        parts.append(f"TELEMETRY: leader talk share {snap.talk_share_recent_pct:.0f}%, "
-                     f"room sentiment {snap.room_sentiment:+.2f}, monologue {snap.monologue_s:.0f}s")
-        parts.append("TRANSCRIPT (most recent last):\n" + transcript)
+        parts.append("TRANSCRIPT (most recent last):\n" + (transcript or "(silence)"))
+        parts.append(f"SIGNALS: leader talk share {snap.talk_share_recent_pct:.0f}%, "
+                     f"room sentiment {snap.room_sentiment:+.2f} (-1 tense, +1 positive), "
+                     f"leader monologue {snap.monologue_s:.0f}s")
+        if self._shown:
+            parts.append("ALREADY SHOWN:\n" + "\n".join(f"- {h}" for h in self._shown[-6:]))
+        parts.append(f"TASK ({trigger}): {TRIGGER_GUIDANCE[trigger]}")
         return "\n\n".join(parts)
 
     def _is_duplicate(self, headline: str) -> bool:
@@ -296,6 +339,7 @@ class CoachingEngine:
             if toks and len(toks & prev) / len(toks | prev) > 0.6:
                 return True
         self._recent_headlines.append(toks)
+        self._shown.append(headline)
         return False
 
     async def _generate(self, trigger: str, prio: int) -> None:
@@ -317,7 +361,9 @@ class CoachingEngine:
             kind = raw.get("kind") if raw.get("kind") in CARD_KINDS else "question"
             headline = str(raw.get("headline", "")).strip().strip('"')
             body = str(raw.get("body", "")).strip()
-            if not headline or not is_grounded(f"{headline} {body}", sources):
+            if not headline or len(headline.split()) > MAX_HEADLINE_WORDS:
+                continue
+            if not is_grounded(f"{headline} {body}", sources):
                 logger.info("dropped ungrounded card: %s", headline)
                 continue
             if self._is_duplicate(headline):

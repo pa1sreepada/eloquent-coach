@@ -33,14 +33,14 @@ app.include_router(realtime.router)
 lm_client: LMStudioClient | None = None
 metrics_engine: MetricsEngine | None = None
 
-LEGACY_KEYS = ("whisper_model", "whisper_compute_type", "insight_interval")
+LEGACY_KEYS = ("whisper_model", "whisper_compute_type", "insight_interval", "system_prompt")
 
 
 def init_default_settings(db: Session):
     defaults = {
         "llm_api_url": "http://127.0.0.1:1234/v1",
         "llm_model": "",
-        "system_prompt": "You are a strategic leadership coach monitoring an executive meeting.\nProvide ONE high-impact Leading Question or Strategic Pivot for the leader.\nFocus on asking powerful Socratic questions that surface alignment, uncover unstated risks, or drive ownership.\nCategorize as: 'question' (Leading Question), 'structure' (Strategic Pivot), 'risk' (Blindspot/Risk Alert), or 'praise' (High-Leverage Statement).\nFormat: CATEGORY | Your strategic question or pivot here.\nKeep under 20 words. Reply 'NONE' if no strategic input is needed.",
+        "coach_instructions": "",
         "asr_profile": "auto",
         "asr_backend": "auto",
         "asr_adaptive": "true",
@@ -72,7 +72,7 @@ async def on_startup():
 class SettingsUpdate(BaseModel):
     llm_api_url: str
     llm_model: str = ""
-    system_prompt: str
+    coach_instructions: str = ""
     asr_profile: str = "auto"
     asr_backend: str = "auto"
     asr_adaptive: str = "true"

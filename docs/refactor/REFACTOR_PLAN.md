@@ -298,16 +298,16 @@ class ChannelTranscriber:          # one per channel, driven by exactly one thre
 
 ### 5.2 Prompt contract
 
-The `SYSTEM_PROMPT` defines the eight card kinds:
+The `SYSTEM_PROMPT` is **static**, so llama.cpp and LM Studio can reuse its KV cache across calls. It defines six live card kinds: `question`, `counterpoint`, `alignment`, `bluf` (Pyramid Principle: answer first, then the strongest supports), `risk` and `context`. The HUD still renders the legacy `answer` and `bio` kinds, but the model is no longer offered them because they duplicated `context`.
 
-- `question`: a Socratic, high-leverage question.
-- `counterpoint`: a respectful strategic pushback.
-- `alignment`: converts discussion to a decision (owner, date, metric) or names shared ground.
-- `bluf`: Pyramid Principle, answer first and then 2–3 supports.
-- `context`, `answer`, `bio`: facts from prep notes only.
-- `risk`.
+It also sets a four-rule quality bar:
 
-Headlines are ≤ 12 words and **speakable verbatim**. Bodies are ≤ 25 words.
+1. **Specific:** if a card would fit any meeting, return no card.
+2. **Grounded:** never invent a fact; when one is missing, ask for it.
+3. **Executive voice:** no hedges.
+4. **Fresh:** do not repeat anything in `ALREADY SHOWN`.
+
+Headlines are ≤ 12 words and **speakable verbatim**. Bodies are ≤ 20 words. Code drops any headline over 18 words.
 
 The request is OpenAI-compatible, so it works with LM Studio, Ollama, or llama-server:
 
@@ -316,14 +316,20 @@ The request is OpenAI-compatible, so it works with LM Studio, Ollama, or llama-s
  "response_format": {"type": "json_schema", "json_schema": {"name": "cards", "schema": CARD_SCHEMA}}}
 ```
 
-The user prompt contains:
+The user prompt puts stable context first and the task last, so the model follows the instruction it read most recently:
 
-- mode
-- trigger and its guidance
-- agenda
-- the **top-4 prep-note lines by token overlap** with the live transcript
-- a telemetry line
-- the last 120 s of transcript
+1. `MODE` plus a per-mode `FOCUS` lens (`MODE_FOCUS`): Fireside, Board, 1:1, Negotiation, Conflict, OKR, General
+2. `AGENDA`
+3. `LEADER PREFERENCES`: the optional Settings → *Coaching Instructions* field
+4. `PREP NOTES`: the **top-4 lines by token overlap** with the live transcript
+5. `TRANSCRIPT`: the last 120 s, capped at 2,500 characters
+6. `SIGNALS`: talk share, room sentiment, monologue length
+7. `ALREADY SHOWN`: the last 6 card headlines
+8. `TASK`: the trigger and its guidance
+
+**Post-meeting briefing** (`post_meeting_synthesis.py`) outputs four marked sections: Executive Summary (bottom line first), Action Items (Owner | Action | Due; never invented), Open Questions (including unanswered live coaching questions), and Strategic Reroutes (up to 3, each ORIGIN quoted verbatim). Fireside mode uses a host/guest variant.
+
+Long meetings are not truncated. The transcript is split into chunks sized from the model's *loaded* context window (LM Studio `/api/v0/models`). Each chunk is condensed into notes in order, then the briefing is written from those notes.
 
 ### 5.3 Grounding (hallucination control)
 

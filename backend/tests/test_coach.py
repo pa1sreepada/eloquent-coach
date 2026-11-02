@@ -28,7 +28,7 @@ assert "ARR" in select_prep_notes("Q3 ARR is $4.2M.\nSarah leads API.\nBudget fr
 class Stub:
     def __init__(s): s.calls=[]
     async def json_completion(s, sys_, user, schema, max_tokens=220):
-        s.calls.append(user.split("\n")[1]); await asyncio.sleep(0.05)
+        s.calls.append(user.rsplit("\n\n", 1)[-1]); await asyncio.sleep(0.05)
         return {"cards":[{"kind":"bluf","headline":"Bottom line: enterprise first, capacity via contractors.","body":""}]}
 out=[]
 async def emit(e): out.append(e)
@@ -41,6 +41,10 @@ async def main():
     await asyncio.sleep(0.1)
     cards=[e for e in out if e["type"]=="card"]
     assert len(cards)==1, cards
+    prompt = eng._build_prompt("my_turn")
+    assert prompt.rsplit("\n\n", 1)[-1].startswith("TASK (my_turn)"), prompt   # task last
+    assert "ALREADY SHOWN:\n- Bottom line: enterprise first" in prompt               # avoid repeats
+    assert stub.calls[0].startswith("TASK (question_to_me)")
     print("engine ok:", cards[0]["kind"], cards[0]["headline"], "| trigger line:", stub.calls[0])
 asyncio.run(main())
 
@@ -98,3 +102,45 @@ async def coordination():
 
 import time
 asyncio.run(coordination())
+
+# --- prompt assembly + post-meeting parsing -------------------------------
+from coach_engine import mode_focus, DEFAULT_FOCUS
+assert "guest" in mode_focus("Fireside Chat & Guest Speaker")
+assert "Trade, never give" in mode_focus("Negotiation & Deal Mode")
+assert mode_focus("General Executive") == DEFAULT_FOCUS
+
+from post_meeting_synthesis import parse_briefing, _chunks
+raw = """**--- EXECUTIVE SUMMARY ---**
+Bottom line: ship enterprise first.
+## --- ACTION ITEMS ---
+- Sarah | Migration plan | Friday
+--- OPEN QUESTIONS ---
+- Who covers SMB churn?
+--- STRATEGIC REROUTES ---
+1. ORIGIN: "I think maybe we could possibly look at shipping it next quarter" | ALTERNATIVE: "We will ship it next quarter" | RATIONALE: Commit.
+"""
+summary, reroutes = parse_briefing(raw)
+assert summary.startswith("Bottom line") and "Action Items:\n- Sarah" in summary and "Open Questions:" in summary, summary
+assert reroutes.startswith("1. ORIGIN") and "---" not in summary
+assert parse_briefing("--- EXECUTIVE SUMMARY ---\nx\n--- STRATEGIC REROUTES ---\nNone")[1] == ""
+assert parse_briefing("free text")[0] == "free text"
+assert parse_briefing("x<channel|>--- EXECUTIVE SUMMARY ---\nBottom line: y")[0] == "Bottom line: y"
+from lm_studio_client import strip_reasoning
+assert strip_reasoning("plan...<channel|>--- EXECUTIVE SUMMARY ---") == "--- EXECUTIVE SUMMARY ---"
+assert parse_briefing("Bottom line: x\n--- ACTION ITEMS ---\n- None")[0].startswith("Bottom line: x")
+parts = _chunks("\n".join(f"Me: line {i}" for i in range(100)), 120)
+assert all(len(p) <= 120 for p in parts) and "\n".join(parts).count("line") == 100
+print("prompts ok")
+
+
+def test_reroute_filter():
+    from post_meeting_synthesis import parse_briefing
+    raw = ("--- EXECUTIVE SUMMARY ---\nBottom line: ok\n--- STRATEGIC REROUTES ---\n"
+           '1. ORIGIN: "I think what I am trying to understand a couple of things." | ALTERNATIVE: "We must address X, Y, and Z." | RATIONALE: r\n'
+           '2. ORIGIN: "Too short." | ALTERNATIVE: "Clear." | RATIONALE: r\n'
+           '3. ORIGIN: "I can not really do anything about the slow API calls." | ALTERNATIVE: "API latency is outside our control; we track it." | RATIONALE: r\n')
+    _, rr = parse_briefing(raw)
+    assert rr.count("ORIGIN") == 1 and "slow API" in rr, rr
+
+
+test_reroute_filter()
