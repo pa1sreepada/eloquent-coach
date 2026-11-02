@@ -1,0 +1,37 @@
+# Dependabot: security updates + weekly version updates, reviewed via PRs that CI must pass.
+# Patch/minor bumps are grouped into one PR per ecosystem; majors get their own PR for review.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels: [dependencies, javascript]
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+      electron:
+        patterns: [electron, electron-builder, vite-plugin-electron*]
+        update-types: [major]
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels: [dependencies, python]
+    groups:
+      pip-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: [dependencies, ci]
+    groups:
+      actions:
+        patterns: ["*"]

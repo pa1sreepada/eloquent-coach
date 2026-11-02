@@ -1,0 +1,2 @@
+-r requirements.txt
+pip-audit>=2.7,<3              # vulnerability scan used by scripts/update_deps.py

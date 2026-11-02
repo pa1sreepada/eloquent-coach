@@ -1,0 +1,21 @@
+# Runtime dependencies. Python 3.10–3.13 (3.13 recommended).
+# Ranges allow patch/minor updates but block the next major (or the next 0.x minor),
+# so a fresh install always gets current security fixes without breaking changes.
+# Major upgrades are proposed by Dependabot / scripts/update_deps.py for review.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+sqlalchemy>=2.0,<3
+pydantic>=2.7,<3
+numpy>=2.0,<3
+httpx>=0.28,<1
+websockets>=13,<18
+
+# Local streaming ASR (Parakeet GGUF via ggml; prebuilt Metal/CUDA/CPU wheels)
+transcribe-cpp>=0.4.1,<0.5
+huggingface_hub>=0.34,<3        # model download + cache
+
+# Coaching telemetry
+vaderSentiment>=3.3.2,<4
+
+# Optional: better hardware probing on Windows
+# psutil>=5.9,<8

@@ -1,0 +1,33 @@
+# --- Private user data: never commit ---
+*.db
+*.db-shm
+*.db-wal
+*.sqlite*
+backend/transcripts/
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+venv/
+.venv/
+venv.*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Node / build output ---
+node_modules/
+dist/
+dist-ssr/
+dist-electron/
+release/
+*.log
+
+# --- Local tooling ---
+.dependency-reports/
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.local

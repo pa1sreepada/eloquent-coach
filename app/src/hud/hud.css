@@ -1,0 +1,37 @@
+html, body, #root { background: transparent !important; margin: 0; overflow: hidden; }
+.hud { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: flex-start;
+  font: 500 15px/1.35 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  color: #eaf6ee; user-select: none; -webkit-font-smoothing: antialiased; }
+.hud-panel { width: 100%; max-width: 560px; margin-top: 8px; padding: 10px 14px; border-radius: 14px;
+  background: rgba(10, 14, 12, 0.55); backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(120, 255, 170, 0.12); box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  transition: background .2s; }
+.hud-panel:hover { background: rgba(10, 14, 12, 0.8); }
+.hud-strip { display: flex; gap: 14px; align-items: center; font-size: 10px; letter-spacing: .08em; opacity: .85; }
+.meter b { font-size: 13px; margin-right: 4px; font-variant-numeric: tabular-nums; }
+.meter.warn { color: #ffb86b; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #445; }
+.dot.me { background: #6bffa8; box-shadow: 0 0 8px #6bffa8; } .dot.them { background: #6bb8ff; }
+.lock { margin-left: auto; color: #ffd36b; }
+.hud-alert { margin-top: 6px; font-size: 12px; color: #ffb86b; }
+.hud-card { margin-top: 8px; animation: in .18s ease-out; }
+.hud-card .kind { font-size: 10px; letter-spacing: .14em; color: #6bffa8; }
+.hud-card.p1 .kind { color: #ff7b7b; }
+.hud-card .headline { font-size: 20px; font-weight: 650; line-height: 1.25; margin-top: 2px; }
+.hud-card .body { font-size: 14px; opacity: .8; margin-top: 4px; }
+.hud-card.pinned .headline { color: #6bffa8; }
+.hud-card footer { font-size: 10px; opacity: .5; margin-top: 4px; min-height: 12px; }
+.ttl { height: 2px; background: rgba(255,255,255,.08); margin-top: 8px; border-radius: 1px; overflow: hidden; }
+.ttl > div { height: 100%; background: rgba(107,255,168,.6); transform-origin: left; animation: ttl linear forwards; }
+@keyframes ttl { to { transform: scaleX(0); } }
+@keyframes in { from { opacity: 0; transform: translateY(-4px); } }
+.hud-idle { margin-top: 8px; opacity: .4; font-size: 13px; }
+.hud-live { margin-top: 6px; font-size: 12px; opacity: .55; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; direction: rtl; text-align: left; }
+.hud-live.me { color: #6bffa8; }
+.prompter { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 8px; }
+.prompter .page { font-size: 18px; line-height: 1.45; }
+.prompter .read { opacity: .35; } .prompter .cursor { text-decoration: underline #6bffa8 2px; }
+.prompter .pageno { font-size: 10px; opacity: .4; text-align: right; }
+.meter.asr { margin-left: auto; }
+.meter.asr + .lock { margin-left: 8px; }
