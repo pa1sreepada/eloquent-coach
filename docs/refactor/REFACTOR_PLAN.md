@@ -327,7 +327,7 @@ The user prompt puts stable context first and the task last, so the model follow
 7. `ALREADY SHOWN`: the last 6 card headlines
 8. `TASK`: the trigger and its guidance
 
-**Post-meeting briefing** (`post_meeting_synthesis.py`) outputs four marked sections: Executive Summary (bottom line first), Action Items (Owner | Action | Due; never invented), Open Questions (including unanswered live coaching questions), and Strategic Reroutes (up to 3, each ORIGIN quoted verbatim). Fireside mode uses a host/guest variant.
+**Post-meeting briefing** (`post_meeting_synthesis.py`) outputs four marked sections: Executive Summary (bottom line first), Action Items (Owner | Action | Due; never invented), Open Questions (including unanswered live coaching questions), and Strategic Reroutes (up to 3, each ORIGIN quoted verbatim). Fireside mode uses a host/guest variant. It runs only on demand from Reports (never automatically at meeting end), is refused while a meeting is live, and only one runs at a time, so the LLM stays free for live coaching.
 
 Long meetings are not truncated. The transcript is split into chunks sized from the model's *loaded* context window (LM Studio `/api/v0/models`). Each chunk is condensed into notes in order, then the briefing is written from those notes.
 

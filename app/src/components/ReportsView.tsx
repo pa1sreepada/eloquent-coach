@@ -36,8 +36,11 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
   
   const [isLoadingMeetings, setIsLoadingMeetings] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const [synthesisError, setSynthesisError] = useState<string | null>(null);
+  const [synthesizingId, setSynthesizingId] = useState<number | null>(null);
+  const [synthesisError, setSynthesisError] = useState<{ id: number; message: string } | null>(null);
+  const isSynthesizing = synthesizingId !== null && synthesizingId === selectedMeetingId;
+  const busyElsewhere = synthesizingId !== null && synthesizingId !== selectedMeetingId;
+  const errorText = synthesisError && synthesisError.id === selectedMeetingId ? synthesisError.message : null;
 
   useEffect(() => {
     fetchMeetings();
@@ -88,32 +91,30 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
       e.preventDefault();
       e.stopPropagation();
     }
-    if (!selectedMeetingId) return;
-    
-    setIsSynthesizing(true);
+    if (!selectedMeetingId || synthesizingId !== null) return;
+    const id = selectedMeetingId;
+    setSynthesizingId(id);
     setSynthesisError(null);
-    
+    const fail = (message: string) => setSynthesisError({ id, message });
+
     try {
-      const res = await fetch(`http://127.0.0.1:8000/meetings/${selectedMeetingId}/synthesize`, {
-        method: 'POST'
-      });
+      const res = await fetch(`http://127.0.0.1:8000/meetings/${id}/synthesize`, { method: 'POST' });
       const data = await res.json();
-      
       if (data.status === 'success') {
-        if (typeof data.summary === 'string' && (data.summary.includes('Failed to generate') || data.summary.includes('Error generating'))) {
-          setSynthesisError(data.summary);
+        if (typeof data.summary === 'string' && /^(Failed to generate|Error generating|No transcript|Meeting not found)/.test(data.summary)) {
+          fail(data.summary);
         } else {
-          await fetchMeetingDetails(selectedMeetingId, true);
+          await fetchMeetingDetails(id, true);
           await fetchMeetings();
         }
       } else {
-        setSynthesisError(data.error || "Failed to generate executive synthesis.");
+        fail(data.error || "Failed to generate executive synthesis.");
       }
     } catch (err: any) {
       console.error("Failed to synthesize:", err);
-      setSynthesisError("Could not reach backend server or LLM API. Make sure LM Studio or your local LLM server is running.");
+      fail("Could not reach backend server or LLM API. Make sure LM Studio or your local LLM server is running.");
     } finally {
-      setIsSynthesizing(false);
+      setSynthesizingId(null);
     }
   };
 
@@ -295,7 +296,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                         type="button"
                         className="btn btn-outline" 
                         onClick={(e) => generateSynthesis(e)}
-                        disabled={isSynthesizing}
+                        disabled={synthesizingId !== null}
                         style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem', height: 'auto' }}
                       >
                         {isSynthesizing ? <RefreshCw className="pulse-animation" size={12} /> : <RefreshCw size={12} />}
@@ -319,12 +320,12 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                     <RefreshCw className="pulse-animation" size={20} color="#60a5fa" />
                     <div>
                       <div style={{ fontWeight: 600, color: '#60a5fa', fontSize: '0.9rem' }}>Analyzing Meeting Transcript with Local LLM...</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Synthesizing key decisions, action items, and strategic phrasing pivots (approx 15-30 seconds).</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Extracting decisions, action items, open questions and phrasing pivots. Long meetings can take a few minutes.</div>
                     </div>
                   </div>
                 )}
 
-                {synthesisError && (
+                {errorText && (
                   <div style={{ 
                     padding: '1rem 1.2rem', 
                     borderRadius: '8px', 
@@ -336,7 +337,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                     gap: '0.3rem'
                   }}>
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Synthesis Could Not Complete</div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{synthesisError}</div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{errorText}</div>
                   </div>
                 )}
 
@@ -367,13 +368,14 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                       type="button"
                       className="btn btn-primary"
                       onClick={(e) => generateSynthesis(e)}
-                      disabled={isSynthesizing}
-                      style={{ opacity: isSynthesizing ? 0.7 : 1 }}
+                      disabled={synthesizingId !== null}
+                      style={{ opacity: synthesizingId !== null ? 0.7 : 1 }}
+                      title={busyElsewhere ? 'Another meeting summary is being generated' : undefined}
                     >
                       {isSynthesizing ? <RefreshCw className="pulse-animation" size={16} /> : <Cpu size={16} />} 
                       {isSynthesizing ? 'Generating Executive Synthesis...' : 'Generate Executive Synthesis'}
                     </button>
-                    <small style={{ color: 'var(--text-tertiary)' }}>This will analyze your transcript using your local LLM to extract key decisions, action items, and strategic pivots.</small>
+                    <small style={{ color: 'var(--text-tertiary)' }}>Generated on demand with your local LLM (not during live meetings): decisions, action items, open questions and phrasing pivots.</small>
                   </div>
                 )}
 

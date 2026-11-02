@@ -131,13 +131,7 @@ async def end_meeting(meeting_id: int, db: Session = Depends(get_db)):
         except Exception as err:
             logger.warning(f"Error calculating final metrics on meeting end: {err}")
             
-        # Asynchronously trigger executive synthesis so content is ready immediately
-        try:
-            synthesizer = PostMeetingSynthesis(lm_client)
-            asyncio.create_task(synthesizer.generate_summary(meeting_id))
-        except Exception as synth_err:
-            logger.warning(f"Error triggering auto-synthesis on meeting end: {synth_err}")
-            
+        # The executive summary is generated on demand from Reports, so the LLM stays free for the next meeting.
         return {"status": "ended", "meeting_id": meeting_id}
     return {"error": "Meeting not found"}
 
@@ -284,11 +278,17 @@ def open_meeting_folder(meeting_id: int, db: Session = Depends(get_db)):
         return {"status": "opened"}
     return {"error": "File not found"}
 
+_synthesis_lock = asyncio.Lock()
+
+
 @app.post("/meetings/{meeting_id}/synthesize")
 async def synthesize_meeting(meeting_id: int):
-    global lm_client
-    synthesizer = PostMeetingSynthesis(lm_client)
-    summary = await synthesizer.generate_summary(meeting_id)
+    if realtime.runtime.sessions:
+        return {"status": "error", "error": "A meeting is in progress. Generate the summary after it ends so live coaching stays fast."}
+    if _synthesis_lock.locked():
+        return {"status": "error", "error": "Another executive summary is being generated. Try again when it finishes."}
+    async with _synthesis_lock:
+        summary = await PostMeetingSynthesis(lm_client).generate_summary(meeting_id)
     return {"status": "success", "summary": summary}
 
 @app.get("/reports/daily/{date_str}")

@@ -18,7 +18,7 @@ No audio, transcripts, or prompts leave your computer unless you point it at a r
 | **Live coaching engine** | Event-driven (questions asked, decisions, monologues, objections) rather than on a timer. Produces prioritized cards: leading questions, strategic counterpoints, alignment cues, Pyramid-Principle / BLUF framing — grounded in your agenda and prep notes. |
 | **Telemetry** | Talk-time share, words per minute, filler words, hedges, monologue length, wait time after questions, interruptions, and room sentiment. |
 | **Teleprompter HUD** | Transparent, click-through, always-on-top overlay with a card deck that auto-advances with the conversation, plus a script aligner that follows your prepared talking points as you speak. |
-| **Post-meeting synthesis** | Executive summary, strategic alternatives, metrics history and daily reports. |
+| **Post-meeting synthesis** | On-demand executive summary per meeting (Reports → Generate), strategic alternatives, metrics history and daily reports. |
 
 ---
 
