@@ -22,23 +22,42 @@ export default function DashboardView({ onStartMeeting, onViewHistory }: { onSta
   const [prepNotesInput, setPrepNotesInput] = useState('');
   const [showPrepNotes, setShowPrepNotes] = useState(false);
 
+  const [loadError, setLoadError] = useState(false);
+
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/dashboard/stats')
-      .then(res => res.json())
-      .then(data => {
-        setStats(data);
-        setIsLoading(false);
-      })
-      .catch(err => {
-        console.error("Failed to load dashboard stats:", err);
-        setIsLoading(false);
-      });
+    // The backend can take a while to start (first-run model download), so retry until it answers.
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const load = () => {
+      fetch('http://127.0.0.1:8000/dashboard/stats')
+        .then(res => res.json())
+        .then(data => {
+          if (cancelled) return;
+          setStats(data);
+          setLoadError(false);
+          setIsLoading(false);
+        })
+        .catch(err => {
+          if (cancelled) return;
+          attempts += 1;
+          if (attempts >= 5) setLoadError(true);
+          if (attempts === 5) console.error("Failed to load dashboard stats:", err);
+          timer = setTimeout(load, 2000);
+        });
+    };
+    load();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, []);
 
   if (isLoading || !stats) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-        <div className="pulse-animation">Loading Efficacy Data...</div>
+        <div className="pulse-animation" style={{ textAlign: 'center' }}>
+          {loadError
+            ? <>Waiting for the backend to start…<br /><small style={{ color: 'var(--text-secondary)' }}>The first launch can take a few minutes while speech models download. Check the terminal for errors.</small></>
+            : 'Loading Efficacy Data...'}
+        </div>
       </div>
     );
   }
@@ -162,21 +181,21 @@ export default function DashboardView({ onStartMeeting, onViewHistory }: { onSta
         <StatCard 
           icon={<TrendingUp size={22} color="var(--color-structure)" />} 
           label="LPS Proficiency Score" 
-          value={`${stats.avg_score}/10`} 
+          value={`${stats.avg_score ?? 0}/10`} 
           trend="+0.4 from last week"
           trendColor="var(--color-structure)"
         />
         <StatCard 
           icon={<Clock size={22} color="var(--accent-primary)" />} 
           label="Talk Time %" 
-          value={`${stats.talk_time_pct}%`} 
+          value={`${stats.talk_time_pct ?? 0}%`} 
           trend="Target: 30-40%"
           trendColor="var(--text-tertiary)"
         />
         <StatCard 
           icon={<Zap size={22} color="#F59E0B" />} 
           label="Confidence" 
-          value={stats.confidence_score.toString()} 
+          value={String(stats.confidence_score ?? 0)} 
           trend="Optimal pacing"
           trendColor="var(--color-structure)"
         />
@@ -216,7 +235,7 @@ export default function DashboardView({ onStartMeeting, onViewHistory }: { onSta
           </span>
         </div>
         
-        {stats.recent_meetings.length === 0 ? (
+        {!stats.recent_meetings?.length ? (
           <div className="glass-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem', opacity: 0.8 }}>
             <Calendar size={48} style={{ marginBottom: '1.5rem', opacity: 0.3 }} />
             <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-secondary)' }}>Your history is quiet</h3>

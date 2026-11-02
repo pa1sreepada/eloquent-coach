@@ -66,7 +66,10 @@ async def on_startup():
         db.close()
     lm_client = LMStudioClient(base_url=config.get("llm_api_url", "http://127.0.0.1:1234/v1"))
     metrics_engine = MetricsEngine()
-    await realtime.warmup()
+    try:
+        await realtime.warmup()
+    except Exception as e:  # noqa: BLE001 - keep the API up; ASR start is retried when a meeting begins
+        logger.error("ASR warmup failed (dashboard, reports and settings still work): %s", e)
 
 
 class SettingsUpdate(BaseModel):
@@ -142,7 +145,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         return {
             "avg_score": 0,
             "talk_time_pct": 0,
-            "action_items": 0,
+            "confidence_score": 0,
             "recent_meetings": []
         }
     
