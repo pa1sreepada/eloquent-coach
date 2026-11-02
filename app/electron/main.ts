@@ -53,7 +53,7 @@ function startPythonBackend() {
   
   backendProcess = spawn(pythonPath, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], {
     cwd: path.dirname(scriptPath),
-    env: { ...process.env, ...certifiEnv(path.dirname(pythonPath)), PYTHONUNBUFFERED: '1' },
+    env: { ...process.env, PYTHONUNBUFFERED: '1' },
   })
   backendProcess.on('exit', () => { backendProcess = null })
   
@@ -69,16 +69,6 @@ function startPythonBackend() {
       console.log(`Backend: ${message}`)
     }
   })
-}
-
-// Point TLS at the venv's certifi bundle (fixes HF model downloads on macOS framework Pythons).
-function certifiEnv(binDir: string): Record<string, string> {
-  const winPem = path.join(binDir, '../Lib/site-packages/certifi/cacert.pem')
-  if (fs.existsSync(winPem)) return { SSL_CERT_FILE: winPem, REQUESTS_CA_BUNDLE: winPem }
-  const lib = path.join(binDir, '../lib')
-  const py = fs.existsSync(lib) ? fs.readdirSync(lib).find(d => d.startsWith('python3')) : undefined
-  const pem = py && path.join(lib, py, 'site-packages/certifi/cacert.pem')
-  return pem && fs.existsSync(pem) ? { SSL_CERT_FILE: pem, REQUESTS_CA_BUNDLE: pem } : {}
 }
 
 function createWindow() {

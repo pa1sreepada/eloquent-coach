@@ -19,7 +19,7 @@ from typing import Awaitable, Callable, Literal
 import numpy as np
 import transcribe_cpp
 
-from model_files import ASR_FILE, ASR_REPO, MODELS_DIR, VAD_FILE, VAD_REPO
+from model_files import ASR_FILE, ASR_REPO, MODELS_DIR, VAD_FILE, VAD_REPO, use_system_trust_store
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,7 @@ def resolve_model_paths(asr_path: str | None = None, vad_path: str | None = None
         cached = try_to_load_from_cache(repo, name)
         if isinstance(cached, str):
             return cached
+        use_system_trust_store()
         try:
             return hf_hub_download(repo, name)
         except Exception as e:  # noqa: BLE001 - auth/403/network/SSL all need the same remedy

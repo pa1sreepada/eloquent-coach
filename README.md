@@ -205,7 +205,7 @@ docs/refactor/       architecture & design notes
 | Transcripts lag noticeably | Open **Settings → Transcription** and click *Re-measure this machine*; close other GPU-heavy apps; keep *Adaptive* on. |
 | No coaching cards | Check the LLM URL in Settings and that a model is loaded (LM Studio loads models just-in-time; the first request can take 10+ s). |
 | Participant side is silent | Verify the loopback device in Settings and that your call app outputs to it. |
-| Model download fails with an SSL error (macOS python.org builds) | Run `/Applications/Python 3.13/Install Certificates.command`. |
+| Model download fails with `CERTIFICATE_VERIFY_FAILED` (corporate TLS proxy, or macOS python.org builds) | The backend verifies against the OS trust store via `truststore`; re-run `python3 scripts/setup.py` so it is installed. Don't set `SSL_CERT_FILE` unless it points to a bundle that includes your company's root CA (an explicit value is respected). |
 | Model download fails (403 Forbidden, proxy, offline) | Copy files you already have: `python3 scripts/import_models.py "~/Library/Application Support/com.pais.handy/models"` (any file or folder works). They go to `backend/models/`; restart the backend. |
 | npm is very slow or fails with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` (corporate TLS-inspection proxy) | Use the OS certificate store: `export NODE_OPTIONS=--use-system-ca` (Node 22.15+). The setup/update scripts do this automatically. Don't disable `strict-ssl`. |
 
