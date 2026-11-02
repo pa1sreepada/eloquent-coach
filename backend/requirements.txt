@@ -13,7 +13,7 @@ websockets>=13,<18
 # Local streaming ASR (Parakeet GGUF via ggml; prebuilt Metal/CUDA/CPU wheels)
 transcribe-cpp>=0.4.1,<0.5
 huggingface_hub>=0.34,<3        # model download + cache
-truststore>=0.10,<1             # use the OS trust store (corporate TLS proxies)
+truststore>=0.10.5,<1             # use the OS trust store (corporate TLS proxies)
 
 # Coaching telemetry
 vaderSentiment>=3.3.2,<4
