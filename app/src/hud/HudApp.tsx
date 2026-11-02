@@ -29,6 +29,11 @@ export default function HudApp() {
       api.onHudScript((s) => { setScript(s); aligner.current = createAligner(s); setPointer(0) }),
       api.onHudCommand((cmd) => dispatch({ type: cmd })),
     ]
+    // Pull the current meeting in case the show event arrived before this component mounted.
+    void api.getHudState?.().then(({ meetingId: id, script: s }) => {
+      if (id != null) setMeetingId(prev => prev ?? id)
+      if (s) { setScript(prev => prev || s); if (!aligner.current.words.length) aligner.current = createAligner(s) }
+    })
     return () => offs.forEach(off => off())
   }, [])
 

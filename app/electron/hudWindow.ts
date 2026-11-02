@@ -2,14 +2,27 @@ import { BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
 import path from 'node:path'
 
 let hud: BrowserWindow | null = null
+// Last meeting/script shown; the HUD page pulls this on load (its React bundle loads lazily and can miss pushes).
+let state: { meetingId: number | null; script: string } = { meetingId: null, script: '' }
+
+const WIDTH = 600
+const HEIGHT = 340
+
+// The built-in display hosts the camera, so the HUD sits just below it; fall back to the primary display.
+function cameraDisplay() {
+  return screen.getAllDisplays().find(d => d.internal) ?? screen.getPrimaryDisplay()
+}
+
+function placeHud() {
+  if (!hud || hud.isDestroyed()) return
+  const { workArea } = cameraDisplay()   // workArea starts below the menu bar (and the notch)
+  hud.setBounds({ x: Math.round(workArea.x + (workArea.width - WIDTH) / 2), y: workArea.y + 4, width: WIDTH, height: HEIGHT })
+}
 
 export function createHudWindow(preload: string, devUrl: string | undefined, distDir: string) {
   if (hud && !hud.isDestroyed()) return hud
-  const { workArea } = screen.getPrimaryDisplay()
-  const width = 600
   hud = new BrowserWindow({
-    width, height: 340,
-    x: Math.round(workArea.x + (workArea.width - width) / 2), y: workArea.y + 4,
+    width: WIDTH, height: HEIGHT,
     transparent: true, frame: false, hasShadow: false, resizable: false,
     focusable: false,            // never steals focus from Zoom/Meet/Keynote
     skipTaskbar: true, show: false,
@@ -29,22 +42,25 @@ export function createHudWindow(preload: string, devUrl: string | undefined, dis
 const send = (ch: string, ...args: unknown[]) => hud?.webContents.send(ch, ...args)
 
 export function registerHudIpc(preload: string, devUrl: string | undefined, distDir: string) {
+  ipcMain.handle('hud:state', () => state)
   ipcMain.on('hud:show', (_e, meetingId: unknown, script: unknown) => {
     if (typeof meetingId !== 'number') return
+    state = { meetingId, script: typeof script === 'string' ? script : '' }
     const w = createHudWindow(preload, devUrl, distDir)
-    const push = () => {
-      send('hud:meeting', meetingId)
-      if (typeof script === 'string' && script) send('hud:script', script)
-      w.showInactive()
-    }
-    if (w.webContents.isLoading()) w.webContents.once('did-finish-load', push)
-    else push()
+    placeHud()
+    send('hud:meeting', meetingId)
+    if (state.script) send('hud:script', state.script)
+    w.showInactive()
     registerHudShortcuts()
   })
   ipcMain.on('hud:hide', () => { hud?.hide(); unregisterHudShortcuts() })
   ipcMain.on('hud:interactive', (_e, on: unknown) => {
     hud?.setIgnoreMouseEvents(!on, { forward: true })
   })
+  // Follow the camera display when monitors are plugged/unplugged or resolution changes.
+  screen.on('display-added', placeHud)
+  screen.on('display-removed', placeHud)
+  screen.on('display-metrics-changed', placeHud)
 }
 
 const SHORTCUTS: Record<string, () => void> = {
