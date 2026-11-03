@@ -16,6 +16,7 @@ def _sqlite_pragmas(dbapi_conn, _record):
     cur = dbapi_conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
     cur.execute("PRAGMA synchronous=NORMAL")
+    cur.execute("PRAGMA secure_delete=ON")   # overwrite deleted meeting data instead of leaving it in free pages
     cur.close()
 
 

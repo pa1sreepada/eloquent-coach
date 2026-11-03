@@ -3,12 +3,13 @@ import logging
 import asyncio
 import datetime
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from database import init_db, get_db, Meeting, AppConfig, SessionLocal
+from database import init_db, get_db, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics
 from lm_studio_client import LMStudioClient
 from metrics_engine import MetricsEngine
 from post_meeting_synthesis import PostMeetingSynthesis
@@ -140,50 +141,25 @@ async def end_meeting(meeting_id: int, db: Session = Depends(get_db)):
 
 @app.get("/dashboard/stats")
 def get_dashboard_stats(db: Session = Depends(get_db)):
-    meetings = db.query(Meeting).all()
-    if not meetings:
-        return {
-            "avg_score": 0,
-            "talk_time_pct": 0,
-            "confidence_score": 0,
-            "recent_meetings": []
-        }
-    
-    total_score = 0
-    total_confidence = 0
-    total_talk_time = 0
-    total_listen_time = 0
-    
-    for m in meetings:
-        total_score += (m.lps_score or 8.5)
-        
-        for metric in m.metrics:
-            total_talk_time += metric.talk_time
-            total_listen_time += metric.listen_time
-            total_confidence += (metric.confidence_score or 8.0)
-            
-    total_time = total_talk_time + total_listen_time
-    count = len(meetings)
-    talk_time_pct = (total_talk_time / total_time * 100) if total_time > 0 else 0
-    avg_score = round(total_score / count, 1)
-    avg_confidence = round(total_confidence / count, 1) if count > 0 else 0
-    
-    recent = db.query(Meeting).order_by(Meeting.start_time.desc()).limit(3).all()
-    recent_list = []
-    for m in recent:
-        recent_list.append({
-            "id": m.id,
-            "title": m.title,
-            "date": m.start_time.strftime("%b %d, %Y") if m.start_time else "Unknown",
-            "score": 8.5,
-            "duration": "20m" # Mock for now
-        })
+    """Real aggregates only (no placeholder numbers); each value is None until there is data."""
+    meetings = db.query(Meeting).filter(Meeting.end_time.isnot(None)).all()
+    week_ago = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+    minutes = sum((m.end_time - m.start_time).total_seconds() / 60 for m in meetings if m.start_time)
+    rows = [m.metrics[-1] for m in meetings if m.metrics]
+
+    def avg(vals):
+        vals = [v for v in vals if v is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
 
     return {
-        "avg_score": avg_score,
-        "talk_time_pct": round(talk_time_pct, 1),
-        "confidence_score": avg_confidence,
-        "recent_meetings": recent_list
+        "sessions": len(meetings),
+        "sessions_this_week": sum(1 for m in meetings if m.start_time and m.start_time >= week_ago),
+        "hours": round(minutes / 60, 1),
+        "avg_score": avg([m.lps_score for m in meetings]),
+        "talk_share_pct": avg([100 * r.talk_time / (r.talk_time + r.listen_time)
+                               for r in rows if (r.talk_time or 0) + (r.listen_time or 0) > 0]),
+        "question_pct": avg([100 * r.question_ratio for r in rows if r.question_ratio is not None]),
+        "fillers_per_session": avg([r.filler_count for r in rows]),
     }
 
 @app.get("/meetings")
@@ -204,6 +180,7 @@ def get_meetings(db: Session = Depends(get_db)):
             "start_time": m.start_time.isoformat() if m.start_time else None,
             "end_time": m.end_time.isoformat() if m.end_time else None,
             "summary": m.summary,
+            "mode": m.mode,
             "score": avg_score
         })
     return results
@@ -239,8 +216,16 @@ def get_meeting_details(meeting_id: int, db: Session = Depends(get_db)):
         "lps_score": meeting.lps_score,
         "strategic_alternatives": meeting.strategic_alternatives,
         "transcripts": transcripts,
+        "insights": _insights(meeting),
         "metrics": metrics
     }
+
+
+def _insights(meeting: Meeting) -> list[dict]:
+    """Live coaching cards shown during the meeting, oldest first."""
+    rows = sorted(meeting.insights, key=lambda i: i.timestamp or datetime.datetime.min)
+    return [{"id": i.id, "kind": i.insight_type, "headline": i.text, "body": i.strategic_rationale,
+             "timestamp": i.timestamp.isoformat() if i.timestamp else None} for i in rows]
 
 @app.get("/meetings/{meeting_id}/export")
 def export_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
@@ -264,12 +249,44 @@ def export_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
         export_content += "## Strategic Executive Rerouting & Pivots\n"
         export_content += f"{meeting.strategic_alternatives}\n\n"
         
-    export_content += "## Raw Transcript\n"
+    cards = _insights(meeting)
+    if cards:
+        export_content += "## Live Coaching (questions & pivots suggested during the meeting)\n"
+        for c in cards:
+            time_str = c["timestamp"][11:19] if c["timestamp"] else ""
+            body = f" — {c['body']}" if c["body"] else ""
+            export_content += f"- [{time_str}] **{(c['kind'] or '').upper()}**: {c['headline']}{body}\n"
+        export_content += "\n"
+
+    export_content += "## Transcript\n"
     for t in meeting.transcripts:
         time_str = t.timestamp.strftime("%H:%M:%S") if t.timestamp else ""
         export_content += f"[{time_str}] **{t.speaker}**: {t.text}\n"
         
     return {"meeting_id": meeting_id, "title": meeting.title, "export_markdown": export_content}
+
+TRANSCRIPTS_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcripts"))
+
+
+@app.delete("/meetings/{meeting_id}")
+def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
+    """Permanently delete a meeting: transcript, coaching cards, metrics, summary and any legacy transcript file."""
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(404, "Meeting not found")
+    if any(s.meeting_id == meeting_id for s in realtime.runtime.sessions):
+        raise HTTPException(409, "This meeting is still live. End it before deleting.")
+    path = meeting.transcript_filepath
+    for model in (Transcript, Insight, Metrics):
+        db.query(model).filter(model.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.delete(meeting)
+    db.commit()
+    db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))   # don't leave deleted pages in the WAL file
+    # Only remove files inside the app's transcripts folder.
+    if path and os.path.realpath(path).startswith(TRANSCRIPTS_DIR + os.sep) and os.path.isfile(path):
+        os.remove(path)
+    return {"status": "deleted", "meeting_id": meeting_id}
+
 
 @app.post("/meetings/{meeting_id}/open-folder")
 def open_meeting_folder(meeting_id: int, db: Session = Depends(get_db)):

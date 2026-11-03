@@ -92,7 +92,7 @@ Start LM Studio's local server (or Ollama) with a small instruct model — e.g. 
 
 ### 3. Run a meeting
 
-Start a meeting from the dashboard, add an agenda and prep notes (they ground the coaching and feed the teleprompter), then toggle the HUD.
+Start a meeting from the dashboard, add an agenda and prep notes (they ground the coaching and feed the teleprompter), then toggle the HUD. Collapse the sidebar with `⌘\` for more room.
 
 | Shortcut (⌘ on macOS, Ctrl elsewhere) | Action |
 |---|---|
@@ -128,9 +128,8 @@ Environment variables:
 
 ## Privacy & data
 
-* Audio is processed in memory and never written to disk.
 * **Audio is never written to disk** — it is streamed into the ASR engine in memory and discarded once transcribed.
-* Only text is persisted, in the local SQLite database `backend/eloquent_coach.db`: the transcript, the live coaching cards, speaking metrics and the executive summary. Export any meeting as Markdown from the Reports view.
+* Only text is persisted, in the local SQLite database `backend/eloquent_coach.db`: the transcript, the live coaching cards, speaking metrics and the executive summary. In **Meeting History** you can export any meeting as Markdown (summary, live coaching cards and transcript) or delete it. Deleting permanently removes its transcript, coaching cards, summary and metrics (SQLite `secure_delete` overwrites the freed pages).
 * `backend/eloquent_coach.db` (and the legacy `backend/transcripts/` folder from older versions) are git-ignored — **never commit them**.
 * The backend binds to `127.0.0.1` only, and CORS is restricted to the local app.
 * The only network calls are model downloads (Hugging Face, first run) and your configured LLM endpoint.

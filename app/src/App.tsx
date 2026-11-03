@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Mic, Activity, FileText, Settings, BarChart2, History } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Mic, Activity, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import LiveMeetingView from './components/LiveMeetingView';
 import DashboardView from './components/DashboardView';
 import SettingsView from './components/SettingsView';
@@ -13,6 +13,16 @@ function App() {
   const [meetingAgenda, setMeetingAgenda] = useState('');
   const [meetingPrepNotes, setMeetingPrepNotes] = useState('');
   const [selectedHistoryId, setSelectedHistoryId] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
+
+  useEffect(() => { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); }, [collapsed]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); setCollapsed(c => !c); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const renderContent = () => {
     return (
@@ -58,55 +68,37 @@ function App() {
   return (
     <div className="app-container">
       {/* Sidebar */}
-      <aside className="sidebar">
-        <div style={{ marginBottom: '2rem' }} className="flex-center">
-          <div style={{ 
-            width: '40px', height: '40px', borderRadius: '10px', 
+      <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 4px', marginBottom: '1.75rem', height: '36px' }}>
+          <div style={{
+            width: '32px', height: '32px', borderRadius: '9px', flexShrink: 0,
             background: 'linear-gradient(135deg, var(--accent-primary), var(--color-praise))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginRight: '12px'
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
           }}>
-            <Activity color="white" size={24} />
+            <Activity color="white" size={18} />
           </div>
-          <h2 style={{ margin: 0, fontSize: '1.2rem', letterSpacing: '0.5px' }}>Eloquent</h2>
+          <span className="label" style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '-0.01em' }}>Eloquent</span>
         </div>
 
-        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <NavItem 
-            icon={<BarChart2 size={20} />} 
-            label="Dashboard" 
-            active={activeTab === 'dashboard'} 
-            onClick={() => setActiveTab('dashboard')} 
-          />
+        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <NavItem icon={<BarChart2 size={18} />} label="Dashboard" collapsed={collapsed}
+            active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           {isRecording && (
-            <NavItem 
-              icon={<Mic size={20} color="var(--color-risk)" />} 
-              label="Live Coach" 
-              active={activeTab === 'live'} 
-              onClick={() => setActiveTab('live')} 
-            />
+            <NavItem icon={<Mic size={18} color="var(--color-risk)" />} label="Live Coach" collapsed={collapsed}
+              active={activeTab === 'live'} onClick={() => setActiveTab('live')} />
           )}
-          <NavItem 
-            icon={<History size={20} />} 
-            label="Meeting History" 
-            active={activeTab === 'history'} 
-            onClick={() => setActiveTab('history')} 
-          />
-          <NavItem 
-            icon={<FileText size={20} />} 
-            label="Reports" 
-            active={activeTab === 'reports'} 
-            onClick={() => setActiveTab('reports')} 
-          />
+          <NavItem icon={<History size={18} />} label="Meeting History" collapsed={collapsed}
+            active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+          <NavItem icon={<FileText size={18} />} label="Reports" collapsed={collapsed}
+            active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
         </nav>
 
-        <div style={{ marginTop: 'auto' }}>
-          <NavItem 
-            icon={<Settings size={20} />} 
-            label="Settings" 
-            active={activeTab === 'settings'} 
-            onClick={() => setActiveTab('settings')} 
-          />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <NavItem icon={<Settings size={18} />} label="Settings" collapsed={collapsed}
+            active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+          <NavItem icon={collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} collapsed={collapsed}
+            active={false} onClick={() => setCollapsed(c => !c)} hint={'⌘\\'} />
         </div>
       </aside>
 
@@ -132,35 +124,12 @@ function App() {
   );
 }
 
-function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) {
+function NavItem({ icon, label, active, onClick, collapsed, hint }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, collapsed: boolean, hint?: string }) {
   return (
-    <button 
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: '12px',
-        padding: '0.8rem 1rem', borderRadius: '8px',
-        background: active ? 'rgba(255,255,255,0.08)' : 'transparent',
-        color: active ? 'white' : 'var(--text-secondary)',
-        border: 'none', cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        textAlign: 'left',
-        fontWeight: active ? 500 : 400
-      }}
-      onMouseOver={(e) => {
-        if (!active) e.currentTarget.style.color = 'white';
-      }}
-      onMouseOut={(e) => {
-        if (!active) e.currentTarget.style.color = 'var(--text-secondary)';
-      }}
-    >
+    <button className={`nav-item ${active ? 'active' : ''}`} onClick={onClick}
+      title={collapsed ? label : hint} aria-label={label}>
       {icon}
-      <span>{label}</span>
-      {active && (
-        <div style={{ 
-          marginLeft: 'auto', width: '4px', height: '16px', 
-          background: 'var(--accent-primary)', borderRadius: '4px' 
-        }} />
-      )}
+      <span className="label">{label}</span>
     </button>
   );
 }
