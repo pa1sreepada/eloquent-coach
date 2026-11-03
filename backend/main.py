@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import asyncio
 import datetime
@@ -294,6 +295,49 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
     if path and os.path.realpath(path).startswith(TRANSCRIPTS_DIR + os.sep) and os.path.isfile(path):
         os.remove(path)
     return {"status": "deleted", "meeting_id": meeting_id}
+
+
+MAX_TITLE_CHARS = 120
+
+
+class TitleUpdate(BaseModel):
+    title: str
+
+
+def _title_filename(title: str) -> str:
+    """Filesystem-safe version of a meeting title (macOS/Windows reserved characters removed)."""
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', " ", title)
+    return re.sub(r"\s+", " ", name).strip(" .") or "Meeting"
+
+
+@app.patch("/meetings/{meeting_id}")
+def rename_meeting(meeting_id: int, body: TitleUpdate, db: Session = Depends(get_db)):
+    """Rename a meeting. Everything else links by id; a legacy transcript file is renamed to match."""
+    title = re.sub(r"\s+", " ", body.title).strip()
+    if not title:
+        raise HTTPException(400, "Title can't be empty.")
+    if len(title) > MAX_TITLE_CHARS:
+        raise HTTPException(400, f"Title must be {MAX_TITLE_CHARS} characters or fewer.")
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(404, "Meeting not found")
+
+    path = meeting.transcript_filepath
+    if path and os.path.realpath(path).startswith(TRANSCRIPTS_DIR + os.sep) and os.path.isfile(path):
+        ext = os.path.splitext(path)[1] or ".txt"
+        target = os.path.join(TRANSCRIPTS_DIR, _title_filename(title) + ext)
+        if os.path.realpath(target) != os.path.realpath(path):
+            if os.path.exists(target):
+                target = os.path.join(TRANSCRIPTS_DIR, f"{_title_filename(title)} ({meeting_id}){ext}")
+            try:
+                os.rename(path, target)
+                meeting.transcript_filepath = target
+            except OSError as err:
+                logger.warning(f"Could not rename transcript file for meeting {meeting_id}: {err}")
+
+    meeting.title = title
+    db.commit()
+    return {"status": "renamed", "meeting_id": meeting_id, "title": title}
 
 
 @app.post("/meetings/{meeting_id}/open-folder")

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, FileText, RefreshCw, Cpu, Download, Trash2, Copy, Check, Sparkles, Mail } from 'lucide-react';
+import { Clock, FileText, RefreshCw, Cpu, Download, Trash2, Copy, Check, Sparkles, Mail, Pencil } from 'lucide-react';
 import { CoachCard } from './coachKinds';
 import { useNotesAutosave } from './useNotesAutosave';
 
@@ -173,6 +173,16 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
     }
   };
 
+  const renameMeeting = async (id: number, title: string) => {
+    const res = await fetch(`${API}/meetings/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Could not rename this meeting.');
+    setMeetings(ms => ms.map(m => (m.id === id ? { ...m, title: data.title } : m)));
+    setMeetingDetails(md => (md && md.id === id ? { ...md, title: data.title } : md));
+  };
+
   const handleExportMarkdown = async () => {
     if (!selectedMeetingId) return;
     try {
@@ -183,7 +193,9 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Meeting_${selectedMeetingId}_${new Date(meetingDetails?.start_time || Date.now()).toISOString().slice(0, 10)}.md`;
+        const date = new Date(meetingDetails?.start_time || Date.now()).toISOString().slice(0, 10);
+        const name = (data.title || `Meeting ${selectedMeetingId}`).replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim();
+        a.download = `${name} – ${date}.md`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -307,7 +319,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
             <header style={{ padding: '1.4rem 1.6rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
                 <div style={{ minWidth: 0 }}>
-                  <h1 style={{ fontSize: '1.5rem', marginBottom: '0.3rem' }}>{d.title || `Session #${d.id}`}</h1>
+                  <EditableTitle key={d.id} value={d.title || `Session #${d.id}`} onSave={t => renameMeeting(d.id, t)} />
                   <div style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
                     {new Date(d.start_time).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     {' · '}{formatDuration(d.start_time, d.end_time)}{' · '}{d.mode}
@@ -552,6 +564,54 @@ function FollowupEmail({ email, drafting, busy, error, onDraft }: {
           {drafting ? 'Drafting…' : 'Draft follow-up email'}
         </button>
       )}
+    </div>
+  );
+}
+
+function EditableTitle({ value, onSave }: { value: string; onSave: (title: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const begin = () => { setDraft(value); setError(null); setEditing(true); };
+  const commit = async () => {
+    const t = draft.replace(/\s+/g, ' ').trim();
+    if (!t || t === value) { setEditing(false); setError(null); return; }
+    setSaving(true);
+    try {
+      await onSave(t);
+      setEditing(false);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not rename this meeting.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div style={{ marginBottom: '0.3rem' }}>
+        <input className="field" autoFocus value={draft} maxLength={120} disabled={saving}
+          aria-label="Meeting title"
+          onChange={e => setDraft(e.target.value)}
+          onFocus={e => e.currentTarget.select()}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(false); setError(null); }
+          }}
+          style={{ fontSize: '1.35rem', fontWeight: 600, padding: '0.2rem 0.5rem', width: 'min(560px, 100%)' }} />
+        {error && <div style={{ fontSize: '0.8rem', color: 'var(--color-risk)', marginTop: '0.3rem' }}>{error}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="editable-title" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.3rem' }}>
+      <h1 onClick={begin} title="Click to rename" style={{ fontSize: '1.5rem', margin: 0, cursor: 'text' }}>{value}</h1>
+      <button className="icon-btn" onClick={begin} title="Rename meeting" aria-label="Rename meeting"><Pencil size={14} /></button>
     </div>
   );
 }
