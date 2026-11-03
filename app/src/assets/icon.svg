@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2f38"/>
+      <stop offset="1" stop-color="#0c0e12"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.32" r="0.6">
+      <stop offset="0" stop-color="#d9a441" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#d9a441" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbf8f1"/>
+      <stop offset="1" stop-color="#e9e3d6"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6d27a"/>
+      <stop offset="1" stop-color="#c48a2c"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- macOS squircle tile -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glow)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="184" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+
+  <!-- the lead's card, behind -->
+  <g transform="rotate(-9 512 540)">
+    <rect x="300" y="300" width="400" height="470" rx="34" fill="#3b404b" opacity="0.9"/>
+  </g>
+
+  <!-- the note being slid across: folded gold corner, last line in gold -->
+  <g transform="rotate(7 520 520)" filter="url(#shadow)">
+    <path d="M 352 286 H 610 L 704 380 V 734 A 30 30 0 0 1 674 764 H 352 A 30 30 0 0 1 322 734 V 316 A 30 30 0 0 1 352 286 Z" fill="url(#paper)"/>
+    <path d="M 610 286 L 704 380 H 640 A 30 30 0 0 1 610 350 Z" fill="url(#gold)"/>
+    <rect x="376" y="420" width="220" height="26" rx="13" fill="#b9b2a4"/>
+    <rect x="376" y="486" width="268" height="26" rx="13" fill="#b9b2a4"/>
+    <rect x="376" y="552" width="180" height="26" rx="13" fill="#b9b2a4"/>
+    <rect x="378" y="648" width="16" height="24" rx="8" fill="url(#gold)"/>
+    <rect x="404" y="634" width="16" height="52" rx="8" fill="url(#gold)"/>
+    <rect x="430" y="618" width="16" height="84" rx="8" fill="url(#gold)"/>
+    <rect x="456" y="640" width="16" height="40" rx="8" fill="url(#gold)"/>
+    <rect x="482" y="612" width="16" height="96" rx="8" fill="url(#gold)"/>
+    <rect x="508" y="630" width="16" height="60" rx="8" fill="url(#gold)"/>
+    <rect x="534" y="645" width="16" height="30" rx="8" fill="url(#gold)"/>
+    <rect x="560" y="624" width="16" height="72" rx="8" fill="url(#gold)"/>
+    <rect x="586" y="638" width="16" height="44" rx="8" fill="url(#gold)"/>
+    <rect x="612" y="649" width="16" height="22" rx="8" fill="url(#gold)"/>
+  </g>
+</svg>

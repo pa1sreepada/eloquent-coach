@@ -1,8 +1,14 @@
-# Eloquent Coach
+<p align="center"><img src="app/build/icon.png" width="128" alt="Second Chair icon"></p>
+
+# Second Chair
+
+*Your executive coach, in a whisper.*
 
 **A private, real-time communication coach for executives — running entirely on your own machine.**
 
-Eloquent Coach listens to a live meeting (your microphone + the meeting audio), transcribes both sides locally with sub-second latency, and surfaces bite-sized coaching on a transparent, always-on-top teleprompter: a high-leverage question to ask, a counterpoint to raise, a bottom-line-first reframe, or a nudge to stop talking and listen.
+In a courtroom, the second chair is the co-counsel who slides the lead attorney the perfect note at the perfect moment. That is what this app does in your meetings.
+
+Second Chair listens to a live meeting (your microphone + the meeting audio), transcribes both sides locally with sub-second latency, and surfaces bite-sized coaching on a transparent, always-on-top teleprompter: a high-leverage question to ask, a counterpoint to raise, a bottom-line-first reframe, or a nudge to stop talking and listen.
 
 No audio, transcripts, or prompts leave your computer unless you point it at a remote LLM.
 
@@ -76,7 +82,7 @@ cd app && npm run dev                  # launches Electron + the backend on 127.
 
 ### 1. Route meeting audio
 
-Eloquent Coach records two inputs: your **microphone** and a **loopback device** carrying everyone else.
+Second Chair records two inputs: your **microphone** and a **loopback device** carrying everyone else.
 
 | OS | Loopback device |
 |---|---|

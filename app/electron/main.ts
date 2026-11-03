@@ -26,6 +26,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 
 let win: BrowserWindow | null = null
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
+const APP_NAME = 'Second Chair'
+app.setName(APP_NAME)
 let backendProcess: ChildProcess | null = null
 
 // venv layout differs per OS; ELOQUENT_PYTHON overrides (e.g. a conda/pyenv interpreter).
@@ -73,7 +75,8 @@ function startPythonBackend() {
 
 function createWindow() {
   win = new BrowserWindow({
-    icon: path.join(VITE_PUBLIC, 'favicon.svg'),
+    title: APP_NAME,
+    icon: path.join(VITE_PUBLIC, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -131,6 +134,8 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(() => {
+  // Packaged builds take the dock icon from the .icns; `npm run dev` would otherwise show Electron's.
+  if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(path.join(VITE_PUBLIC, 'icon.png'))
   registerHudIpc(path.join(__dirname, 'preload.js'), VITE_DEV_SERVER_URL, DIST)
   createWindow()
 })

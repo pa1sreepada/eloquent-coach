@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Mic, Activity, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import appIcon from './assets/icon.svg';
+import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import LiveMeetingView from './components/LiveMeetingView';
 import DashboardView from './components/DashboardView';
 import SettingsView from './components/SettingsView';
@@ -70,14 +71,12 @@ function App() {
       {/* Sidebar */}
       <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 4px', marginBottom: '1.75rem', height: '36px' }}>
-          <div style={{
-            width: '32px', height: '32px', borderRadius: '9px', flexShrink: 0,
-            background: 'linear-gradient(135deg, var(--accent-primary), var(--color-praise))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            <Activity color="white" size={18} />
+          {/* The SVG has macOS icon-grid padding; scale it so the tile fills 32px. */}
+          <img src={appIcon} alt="" width={40} height={40} style={{ margin: '-4px', flexShrink: 0 }} />
+          <div className="label" style={{ lineHeight: 1.15, whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: '1.02rem', fontWeight: 600, letterSpacing: '-0.01em' }}>Second Chair</div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>Your coach, in a whisper</div>
           </div>
-          <span className="label" style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '-0.01em' }}>Eloquent</span>
         </div>
 
         <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>

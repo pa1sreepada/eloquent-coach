@@ -19,7 +19,7 @@ import realtime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Eloquent Coach API")
+app = FastAPI(title="Second Chair API")
 
 # Renderer is served from the Vite dev server or file:// (origin "null") in packaged builds.
 app.add_middleware(
@@ -106,7 +106,7 @@ def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "Eloquent Coach API is running"}
+    return {"status": "ok", "message": "Second Chair API is running"}
 
 @app.post("/meetings/")
 def start_meeting(mode: str = "General", agenda: str = "", prep_notes: str = "", db: Session = Depends(get_db)):
