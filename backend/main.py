@@ -6,11 +6,11 @@ import datetime
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from database import init_db, get_db, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics
+from database import init_db, get_db, engine, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics
 from lm_studio_client import LMStudioClient
 from metrics_engine import MetricsEngine
 from post_meeting_synthesis import PostMeetingSynthesis
@@ -338,6 +338,60 @@ def rename_meeting(meeting_id: int, body: TitleUpdate, db: Session = Depends(get
     meeting.title = title
     db.commit()
     return {"status": "renamed", "meeting_id": meeting_id, "title": title}
+
+
+STORAGE_TABLES = {"meetings": Meeting, "transcripts": Transcript, "insights": Insight, "metrics": Metrics, "app_config": AppConfig}
+
+
+def _db_path() -> str:
+    return os.path.realpath(engine.url.database)
+
+
+def _file_size(path: str) -> int:
+    return os.path.getsize(path) if os.path.isfile(path) else 0
+
+
+@app.get("/storage")
+def get_storage(db: Session = Depends(get_db)):
+    """Read-only overview of where data lives and how much space it uses."""
+    path = _db_path()
+    try:
+        table_bytes = dict(db.execute(text("SELECT name, SUM(pgsize) FROM dbstat GROUP BY name")).all())
+    except Exception:  # noqa: BLE001 - dbstat isn't compiled into every SQLite build
+        table_bytes = {}
+    tables = [
+        {"name": name, "rows": db.query(func.count(model.id)).scalar(), "bytes": table_bytes.get(name)}
+        for name, model in STORAGE_TABLES.items()
+    ]
+    page_size = db.execute(text("PRAGMA page_size")).scalar() or 0
+    free_pages = db.execute(text("PRAGMA freelist_count")).scalar() or 0
+    legacy_files = [f for f in os.listdir(TRANSCRIPTS_DIR) if os.path.isfile(os.path.join(TRANSCRIPTS_DIR, f))] \
+        if os.path.isdir(TRANSCRIPTS_DIR) else []
+    oldest, newest = db.query(func.min(Meeting.start_time), func.max(Meeting.start_time)).one()
+    return {
+        "db_path": path,
+        "db_bytes": _file_size(path),
+        "wal_bytes": _file_size(path + "-wal"),
+        "free_bytes": page_size * free_pages,
+        "sqlite_version": db.execute(text("SELECT sqlite_version()")).scalar(),
+        "journal_mode": db.execute(text("PRAGMA journal_mode")).scalar(),
+        "tables": tables,
+        "oldest_meeting": oldest.isoformat() if oldest else None,
+        "newest_meeting": newest.isoformat() if newest else None,
+        "legacy_transcripts_dir": TRANSCRIPTS_DIR if legacy_files else None,
+        "legacy_transcripts_files": len(legacy_files),
+        "legacy_transcripts_bytes": sum(_file_size(os.path.join(TRANSCRIPTS_DIR, f)) for f in legacy_files),
+    }
+
+
+@app.post("/storage/reveal")
+def reveal_storage():
+    import subprocess
+    path = _db_path()
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Database file not found")
+    subprocess.run(["open", "-R", path])
+    return {"status": "opened"}
 
 
 @app.post("/meetings/{meeting_id}/open-folder")

@@ -142,6 +142,7 @@ Environment variables:
 * **Audio is never written to disk** — it is streamed into the ASR engine in memory and discarded once transcribed.
 * Only text is persisted, in the local SQLite database `backend/eloquent_coach.db`: the transcript, your notes, the live coaching cards, speaking metrics, the executive summary and any follow-up email. In **Meeting History** you can rename a meeting (click its title; the coaching, notes, summary and transcript follow it, and a legacy transcript file is renamed to match), export any meeting as Markdown (summary, notes, follow-up email, live coaching cards and transcript) or delete it. Deleting permanently removes all of it (SQLite `secure_delete` overwrites the freed pages).
 * `backend/eloquent_coach.db` (and the legacy `backend/transcripts/` folder from older versions) are git-ignored — **never commit them**.
+* **Settings → Data & Storage** shows the database location, total size, rows and space used by each kind of data, the date range of meetings and any legacy transcript files. **Show in Finder** reveals the database file.
 * The backend binds to `127.0.0.1` only, and CORS is restricted to the local app.
 * The only network calls are model downloads (Hugging Face, first run) and your configured LLM endpoint.
 

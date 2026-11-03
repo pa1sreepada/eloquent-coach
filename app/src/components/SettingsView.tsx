@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Settings2, Database, Mic, RefreshCw } from 'lucide-react';
 import AsrSettingsPanel, { type AsrSettings } from './AsrSettingsPanel';
+import StoragePanel from './StoragePanel';
 
 interface Settings extends AsrSettings {
   llm_api_url: string;
@@ -319,6 +320,8 @@ export default function SettingsView() {
           </h2>
           <AsrSettingsPanel value={settings} onChange={p => setSettings(prev => ({ ...prev, ...p }))} />
         </div>
+
+        <StoragePanel />
 
         {/* Save Bar */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
