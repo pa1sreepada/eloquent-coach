@@ -6,6 +6,7 @@ declare global {
     eloquent?: {
       showHud(meetingId: number, script?: string): void
       hideHud(): void
+      setLiveMeeting(meetingId: number | null): void
       getHudState(): Promise<{ meetingId: number | null; script: string }>
       setHudInteractive(on: boolean): void
       onHudMeeting(cb: (id: number) => void): () => void

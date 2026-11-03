@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Clock, FileText, RefreshCw, Cpu, Download, Trash2, Copy, Check, Sparkles } from 'lucide-react';
+import { Clock, FileText, RefreshCw, Cpu, Download, Trash2, Copy, Check, Sparkles, Mail } from 'lucide-react';
 import { CoachCard } from './coachKinds';
+import { useNotesAutosave } from './useNotesAutosave';
 
 const API = 'http://127.0.0.1:8000';
 
@@ -31,9 +32,11 @@ interface MeetingDetails extends Meeting {
   }[];
   strategic_alternatives?: string;
   transcript_filepath?: string | null;
+  notes?: string | null;
+  followup_email?: string | null;
 }
 
-type Tab = 'summary' | 'coaching' | 'transcript';
+type Tab = 'summary' | 'notes' | 'coaching' | 'transcript';
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -66,6 +69,9 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [draftingId, setDraftingId] = useState<number | null>(null);
+  const [followupError, setFollowupError] = useState<{ id: number; message: string } | null>(null);
+  const notes = useNotesAutosave(meetingDetails?.id ?? null, meetingDetails?.notes ?? '');
 
   const isSynthesizing = synthesizingId !== null && synthesizingId === selectedMeetingId;
   const busyElsewhere = synthesizingId !== null && synthesizingId !== selectedMeetingId;
@@ -126,6 +132,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
     const id = selectedMeetingId;
     setSynthesizingId(id);
     setSynthesisError(null);
+    await notes.flush();
     const fail = (message: string) => setSynthesisError({ id, message });
     try {
       const res = await fetch(`${API}/meetings/${id}/synthesize`, { method: 'POST' });
@@ -145,6 +152,24 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
       fail('Could not reach the backend or your local LLM. Make sure LM Studio is running.');
     } finally {
       setSynthesizingId(null);
+    }
+  };
+
+  const draftFollowup = async () => {
+    if (!selectedMeetingId || draftingId !== null || synthesizingId !== null) return;
+    const id = selectedMeetingId;
+    setDraftingId(id);
+    setFollowupError(null);
+    try {
+      await notes.flush();
+      const res = await fetch(`${API}/meetings/${id}/followup`, { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 'success') await fetchMeetingDetails(id, true);
+      else setFollowupError({ id, message: data.error || 'Could not draft the email.' });
+    } catch {
+      setFollowupError({ id, message: 'Could not reach the backend or your local LLM. Make sure LM Studio is running.' });
+    } finally {
+      setDraftingId(null);
     }
   };
 
@@ -311,6 +336,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
 
               <div className="segmented" style={{ marginTop: '1.1rem' }}>
                 <button className={tab === 'summary' ? 'on' : ''} onClick={() => setTab('summary')}>Summary</button>
+                <button className={tab === 'notes' ? 'on' : ''} onClick={() => setTab('notes')}>My Notes</button>
                 <button className={tab === 'coaching' ? 'on' : ''} onClick={() => setTab('coaching')}>Live Coaching{insights.length ? ` · ${insights.length}` : ''}</button>
                 <button className={tab === 'transcript' ? 'on' : ''} onClick={() => setTab('transcript')}>Transcript</button>
               </div>
@@ -323,6 +349,25 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                   d={d} isSynthesizing={isSynthesizing} busyElsewhere={busyElsewhere} errorText={errorText}
                   onGenerate={generateSynthesis} onCopy={copySummary} copied={copied}
                 />
+              )}
+
+              {tab === 'summary' && (
+                <FollowupEmail email={d.followup_email ?? null} drafting={draftingId === d.id}
+                  busy={draftingId !== null || synthesizingId !== null}
+                  error={followupError && followupError.id === d.id ? followupError.message : null}
+                  onDraft={draftFollowup} />
+              )}
+
+              {tab === 'notes' && (
+                <div style={{ maxWidth: '760px', height: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
+                    <span>Weighted most heavily when the summary and follow-up email are generated.</span>
+                    <span>{notes.status}</span>
+                  </div>
+                  <textarea className="field" value={notes.value} onChange={e => notes.setValue(e.target.value)}
+                    placeholder="Decisions, names, numbers, follow-ups…"
+                    style={{ flex: 1, minHeight: '320px', resize: 'none', lineHeight: 1.6, fontSize: '0.95rem' }} />
+                </div>
               )}
 
               {tab === 'coaching' && (
@@ -366,7 +411,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
         <div className="sheet-backdrop" onClick={() => !deleting && setConfirmDelete(false)}>
           <div className="sheet" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
             <h3>Delete “{d.title || `Session #${d.id}`}”?</h3>
-            <p>The transcript, live coaching cards, summary and metrics will be permanently deleted from this Mac. This can’t be undone.</p>
+            <p>The transcript, your notes, live coaching cards, summary, follow-up email and metrics will be permanently deleted from this Mac. This can’t be undone.</p>
             {deleteError && <p style={{ color: 'var(--color-risk)', marginTop: '-0.75rem' }}>{deleteError}</p>}
             <div className="actions">
               <button className="btn btn-outline" onClick={() => setConfirmDelete(false)} disabled={deleting} autoFocus>Cancel</button>
@@ -460,6 +505,52 @@ function SummaryTab({ d, isSynthesizing, busyElsewhere, errorText, onGenerate, o
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function FollowupEmail({ email, drafting, busy, error, onDraft }: {
+  email: string | null; drafting: boolean; busy: boolean; error: string | null; onDraft: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const subject = email?.match(/^Subject:\s*(.*)$/m)?.[1]?.trim() ?? '';
+  const body = email ? email.replace(/^Subject:.*\n+/, '') : '';
+  const copy = () => {
+    if (!email) return;
+    navigator.clipboard.writeText(email);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  const openInMail = () => {
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  return (
+    <div style={{ maxWidth: '760px', marginTop: '2rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border-color)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+        <div className="eyebrow">Follow-up email</div>
+        {email && (
+          <div style={{ display: 'flex', gap: '0.25rem' }}>
+            <button className="icon-btn" onClick={copy} title="Copy email">{copied ? <Check size={16} /> : <Copy size={16} />}</button>
+            <button className="icon-btn" onClick={openInMail} title="Open in Mail"><Mail size={16} /></button>
+            <button className="icon-btn" onClick={onDraft} disabled={busy} title="Redraft">
+              <RefreshCw size={16} className={drafting ? 'pulse-animation' : undefined} />
+            </button>
+          </div>
+        )}
+      </div>
+      {error && <div style={{ fontSize: '0.85rem', color: 'var(--color-risk)', marginBottom: '0.6rem' }}>{error}</div>}
+      {email ? (
+        <div style={{ padding: '1rem 1.1rem', borderRadius: '10px', background: 'rgba(255,255,255,0.035)', border: '1px solid var(--border-color)' }}>
+          {subject && <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.6rem' }}>{subject}</div>}
+          <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.6 }}>{body}</div>
+        </div>
+      ) : (
+        <button className="btn btn-outline" onClick={onDraft} disabled={busy}>
+          {drafting ? <RefreshCw size={14} className="pulse-animation" /> : <Mail size={14} />}
+          {drafting ? 'Drafting…' : 'Draft follow-up email'}
+        </button>
       )}
     </div>
   );

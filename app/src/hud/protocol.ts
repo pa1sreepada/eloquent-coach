@@ -69,4 +69,10 @@ export interface AsrStatusEvent {
   warnings: string[]
 }
 
-export type CoachEvent = TranscriptEvent | CardEvent | TelemetryEvent | AsrStatusEvent
+/** 'What do I say now?' lifecycle: pending → a card arrives → done, or empty when nothing useful came back. */
+export interface AskEvent {
+  type: 'ask'
+  state: 'pending' | 'done' | 'empty'
+}
+
+export type CoachEvent = TranscriptEvent | CardEvent | TelemetryEvent | AsrStatusEvent | AskEvent

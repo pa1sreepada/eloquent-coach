@@ -18,6 +18,7 @@ export default function HudApp() {
   const [live, setLive] = useState<{ speaker: string; text: string } | null>(null)
   const [script, setScript] = useState<string>('')
   const [pointer, setPointer] = useState(0)
+  const [asking, setAsking] = useState<'pending' | 'empty' | null>(null)
   const aligner = useRef(createAligner(''))
 
   // Main process tells us which meeting to follow + hotkeys.
@@ -43,7 +44,11 @@ export default function HudApp() {
   }, [])
 
   useCoachEvents(meetingId, (e: CoachEvent) => {
-    if (e.type === 'card') dispatch({ type: 'card', card: e })
+    if (e.type === 'ask') {
+      setAsking(e.state === 'done' ? null : e.state)
+      if (e.state === 'empty') window.setTimeout(() => setAsking(a => (a === 'empty' ? null : a)), 3000)
+    }
+    else if (e.type === 'card') dispatch({ type: 'card', card: e })
     else if (e.type === 'telemetry') setTele(e)
     else if (e.type === 'asr_status') setAsr(e)
     else if (e.type === 'transcript') {
@@ -78,6 +83,10 @@ export default function HudApp() {
         </header>
 
         {alert && <div className="hud-alert">{alert}</div>}
+
+        {asking && (
+          <div className={`hud-ask ${asking}`}>{asking === 'pending' ? 'Thinking…' : 'Nothing new to add right now'}</div>
+        )}
 
         {card ? (
           <article key={card.id} className={`hud-card p${card.priority} ${deck.pinned ? 'pinned' : ''}`}>

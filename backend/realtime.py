@@ -384,6 +384,20 @@ async def events_ws(ws: WebSocket, meeting_id: int):
         bus.unsubscribe(meeting_id, q)
 
 
+def live_session(meeting_id: int) -> "MeetingSession | None":
+    return next((s for s in runtime.sessions if s.meeting_id == meeting_id), None)
+
+
+@router.post("/meetings/{meeting_id}/ask", status_code=202)
+async def ask_now(meeting_id: int):
+    """'What do I say now?': one on-demand card, delivered over the events socket like any other."""
+    session = live_session(meeting_id)
+    if session is None:
+        raise HTTPException(409, "This meeting isn't live.")
+    await session.coach.ask()
+    return {"status": "asking"}
+
+
 class ValidateRequest(BaseModel):
     asr_backend: str = "auto"
     asr_profile: str = "auto"

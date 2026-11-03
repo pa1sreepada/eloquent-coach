@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Square, Mic, MicOff, Copy, Check, MonitorUp, ArrowDown } from 'lucide-react';
+import { Square, Mic, MicOff, Copy, Check, MonitorUp, ArrowDown, Sparkles } from 'lucide-react';
+import { useNotesAutosave } from './useNotesAutosave';
 import { CoachCard } from './coachKinds';
 import { useDualChannelCapture } from '../hud/useDualChannelCapture';
 import { useCoachEvents } from '../hud/useCoachEvents';
@@ -30,6 +31,9 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isHudMode, setIsHudMode] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [asking, setAsking] = useState<'pending' | 'empty' | null>(null);
+  const [pane, setPane] = useState<'coaching' | 'notes'>('coaching');
+  const notes = useNotesAutosave(meetingId);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
@@ -47,8 +51,25 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
     if (el) setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 60);
   };
 
+  // Lets the main process enable the global ⌘⇧↩ "what do I say now?" hotkey while live.
+  useEffect(() => {
+    window.eloquent?.setLiveMeeting(meetingId);
+    return () => window.eloquent?.setLiveMeeting(null);
+  }, [meetingId]);
+
+  const askNow = () => {
+    if (!meetingId || asking === 'pending') return;
+    setAsking('pending');
+    fetch(`${API}/meetings/${meetingId}/ask`, { method: 'POST' })
+      .then(res => { if (!res.ok) setAsking(null); })
+      .catch(() => setAsking(null));
+  };
+
   const onCoachEvent = useCallback((e: CoachEvent) => {
-    if (e.type === 'transcript') {
+    if (e.type === 'ask') {
+      setAsking(e.state === 'done' ? null : e.state);
+      if (e.state === 'empty') setTimeout(() => setAsking(a => (a === 'empty' ? null : a)), 3000);
+    } else if (e.type === 'transcript') {
       setTranscripts(prev => applyTranscript(prev, e));
     } else if (e.type === 'card') {
       const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -72,6 +93,8 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
     setAsr(null);
     setConnectionStatus('connecting');
     setIsHudMode(false);
+    setAsking(null);
+    setPane('coaching');
     isInitializingRef.current = false;
   };
 
@@ -87,6 +110,7 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
   };
 
   const stopAudioCapture = (id: number | null) => {
+    void notes.flush();
     stop();
     window.eloquent?.hideHud();
     if (id) fetch(`${API}/meetings/${id}/end`, { method: 'POST' }).catch(() => {});
@@ -162,6 +186,12 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+          <button className="btn btn-outline" onClick={askNow} disabled={!meetingId || !live || asking === 'pending'}
+            title="One suggestion for what to say right now. Works from any app with ⌘⇧↩."
+            style={{ padding: '0.45rem 0.9rem', fontSize: '0.85rem', borderColor: 'rgba(246,210,122,0.45)', color: '#f6d27a' }}>
+            <Sparkles size={14} className={asking === 'pending' ? 'pulse-animation' : undefined} />
+            {asking === 'pending' ? 'Thinking…' : 'What do I say?'}
+          </button>
           <div className="segmented">
             <button className={isHudMode ? 'on' : ''} onClick={toggleHudMode} disabled={!meetingId || !window.eloquent}
               title="Show the transparent overlay under the camera (⌘⇧H)">
@@ -177,13 +207,14 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
         </div>
       </header>
 
-      {(captureError || alerts.length > 0 || agenda || prepNotes) && (
+      {(captureError || alerts.length > 0 || agenda || prepNotes || asking === 'empty') && (
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
           {captureError && (
             <span style={chip('rgba(239,68,68,0.12)', 'var(--color-risk)')}>
               Audio capture failed: {captureError}. Check microphone permission and devices in Settings.
             </span>
           )}
+          {asking === 'empty' && <span style={chip('rgba(255,255,255,0.06)', 'var(--text-secondary)')}>Nothing new to add right now</span>}
           {alerts.map(a => <span key={a} style={chip('rgba(245,158,11,0.14)', '#f59e0b')}>{a}</span>)}
           {agenda && (
             <span title={agenda} style={{ ...chip('rgba(59,130,246,0.1)', '#93c5fd'), maxWidth: '50%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -224,10 +255,21 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
         {/* Coaching + metrics */}
         <section style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, minWidth: 0 }}>
           <div className="glass-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div style={{ padding: '0.9rem 1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between' }}>
-              <span className="eyebrow" style={{ color: '#93c5fd' }}>Executive Questions & Pivots</span>
-              {insights.length > 0 && <span className="eyebrow">{insights.length}</span>}
+            <div style={{ padding: '0.6rem 1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="segmented">
+                <button className={pane === 'coaching' ? 'on' : ''} onClick={() => setPane('coaching')}>
+                  Questions & Pivots{insights.length > 0 ? ` · ${insights.length}` : ''}
+                </button>
+                <button className={pane === 'notes' ? 'on' : ''} onClick={() => setPane('notes')}>My Notes</button>
+              </div>
+              {pane === 'notes' && <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>{notes.status}</span>}
             </div>
+            {pane === 'notes' ? (
+              <textarea value={notes.value} onChange={e => notes.setValue(e.target.value)} autoFocus
+                placeholder={'Jot anything: decisions, names, numbers, follow-ups.\nYour notes steer live coaching and are weighted most heavily in the executive summary.'}
+                style={{ flex: 1, resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: 'var(--text-primary)',
+                  padding: '1rem 1.25rem', fontSize: '0.95rem', lineHeight: 1.6, fontFamily: 'inherit' }} />
+            ) : (
             <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {insights.length === 0 ? (
                 <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.9rem', maxWidth: '260px' }}>
@@ -246,6 +288,7 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
                 ))
               )}
             </div>
+            )}
           </div>
 
           {/* Metrics strip */}

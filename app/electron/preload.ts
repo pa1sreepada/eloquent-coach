@@ -12,6 +12,7 @@ function subscribe<T>(channel: string, cb: (v: T) => void) {
 contextBridge.exposeInMainWorld('eloquent', {
   showHud: (meetingId: number, script?: string) => ipcRenderer.send('hud:show', meetingId, script ?? ''),
   hideHud: () => ipcRenderer.send('hud:hide'),
+  setLiveMeeting: (meetingId: number | null) => ipcRenderer.send('meeting:live', meetingId),
   getHudState: (): Promise<{ meetingId: number | null; script: string }> => ipcRenderer.invoke('hud:state'),
   setHudInteractive: (on: boolean) => ipcRenderer.send('hud:interactive', !!on),
   onHudMeeting: (cb: (id: number) => void) => subscribe('hud:meeting', cb),

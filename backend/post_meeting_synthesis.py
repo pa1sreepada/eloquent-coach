@@ -68,6 +68,17 @@ Write "- None" if nothing applies.""",
     reroutes="""Moments where Me (the host) asked a surface-level or closed question, interrupted, or moved on before the guest's story reached the decision or lesson, each with a sharper follow-up question.""",
 )
 
+MAX_LEADER_NOTES_CHARS = 3000
+
+FOLLOWUP_PROMPT = """You write the follow-up email a senior leader ("Me") sends to the other attendees right after a meeting.
+
+Rules:
+- Use only facts in the input. Never invent names, owners, dates or numbers. Use a person's name only if it appears in the input.
+- Bottom line first: the outcome or decision in the first sentence after the greeting.
+- Then, as short sections only when there is content: "Decisions", "Next steps" (one bullet per item: Owner: action, by when; keep "Unassigned"/"No date" visible so people can claim them), "Open questions".
+- Confident, warm, plain English. No filler ("I hope this finds you well"), no hedging. Under 180 words.
+- Format: the first line is "Subject: <specific subject, max 9 words>", then a blank line, then "Hi all,", the body, and end with "Thanks," on its own line. Plain text only (no markdown, no asterisks)."""
+
 NOTES_PROMPT = """You take notes on one part of a meeting for a later executive briefing. "Me" is the leader; "Participant" is anyone else. Record only what this part contains, tersely, under these headings:
 DECISIONS:
 COMMITMENTS: (- owner | action | due, as stated; "Unassigned" / "No date" otherwise)
@@ -186,6 +197,10 @@ class PostMeetingSynthesis:
             if live_qs:
                 header.append("LIVE COACHING QUESTIONS (suggested to Me during the meeting):\n"
                               + "\n".join(f"- {q}" for q in live_qs))
+            if (meeting.notes or "").strip():
+                header.append("LEADER NOTES (typed by Me during the meeting; highest-signal input: make sure "
+                              "every decision, commitment and concern noted here is reflected):\n"
+                              + meeting.notes.strip()[:MAX_LEADER_NOTES_CHARS])
 
             ctx = await self.lm_client.context_tokens()
             body, rounds = await self._condense(transcript, ctx, sum(len(h) + 2 for h in header) + 100)
@@ -208,3 +223,50 @@ class PostMeetingSynthesis:
             return "Error generating synthesis."
         finally:
             db.close()
+
+    async def generate_followup(self, meeting_id: int) -> tuple[str | None, str | None]:
+        """Draft a follow-up email. Returns (email, error)."""
+        db = SessionLocal()
+        try:
+            meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+            if not meeting:
+                return None, "Meeting not found."
+            parts = [f"MEETING TYPE: {meeting.mode or 'General'}"]
+            if meeting.agenda:
+                parts.append(f"GOAL: {meeting.agenda}")
+            if (meeting.notes or "").strip():
+                parts.append("MY NOTES:\n" + meeting.notes.strip()[:MAX_LEADER_NOTES_CHARS])
+            if meeting.summary:
+                parts.append("MEETING BRIEFING:\n" + meeting.summary)
+            else:
+                rows = (db.query(Transcript).filter(Transcript.meeting_id == meeting_id)
+                        .order_by(Transcript.timestamp.asc()).all())
+                if not rows and not (meeting.notes or "").strip():
+                    return None, "This meeting has no transcript or notes to write from."
+                transcript = "\n".join(f"{t.speaker}: {t.text}" for t in rows)
+                if transcript:
+                    ctx = await self.lm_client.context_tokens()
+                    body, rounds = await self._condense(transcript, ctx, sum(len(x) + 2 for x in parts) + 100)
+                    parts.append(("TRANSCRIPT:" if rounds == 0 else "MEETING NOTES (in order):") + "\n" + body)
+            raw = await self.lm_client.complete(FOLLOWUP_PROMPT, "\n\n".join(parts), max_tokens=500, temperature=0.3)
+            email = clean_email(raw)
+            if not email:
+                return None, "The local LLM returned nothing. Make sure LM Studio is running."
+            meeting.followup_email = email
+            db.commit()
+            return email, None
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Error generating follow-up email: {e}")
+            return None, "Error generating the follow-up email."
+        finally:
+            db.close()
+
+
+def clean_email(raw: str) -> str:
+    """Normalise model output: start at the Subject line, drop markdown emphasis and code fences."""
+    text = re.sub(r"```\w*", "", raw or "").replace("**", "").strip()
+    m = re.search(r"^\s*subject\s*:", text, re.I | re.M)
+    if m:
+        text = text[m.start():].lstrip()
+        text = re.sub(r"^\s*subject\s*:\s*", "Subject: ", text, count=1, flags=re.I)
+    return text.strip()

@@ -144,3 +144,49 @@ def test_reroute_filter():
 
 
 test_reroute_filter()
+
+
+def test_ask_now():
+    """Hotkey card: preempts, returns one card at top priority, and always reports completion."""
+    class AskStub:
+        def __init__(s, cards): s.cards, s.prompts = cards, []
+        async def json_completion(s, sys_, user, schema, max_tokens=220):
+            s.prompts.append(user); await asyncio.sleep(0.01)
+            return {"cards": s.cards}
+
+    async def run():
+        events = []
+        async def emit(e): events.append(e)
+        two = [{"kind": "question", "headline": "Who owns the pricing decision?", "body": ""},
+               {"kind": "risk", "headline": "Capacity is unplanned for the enterprise push.", "body": ""}]
+        stub = AskStub(two)
+        eng = CoachingEngine(stub, emit)
+        eng.notes = "Push for a decision on pricing by Friday"
+        await eng.ask()
+        await asyncio.sleep(0.05)
+        kinds = [(e["type"], e.get("state")) for e in events]
+        assert kinds == [("ask", "pending"), ("card", None), ("ask", "done")], kinds
+        card = events[1]
+        assert card["priority"] == 1 and card["trigger"] == "ask", card
+        assert "TASK (ask)" in stub.prompts[0] and "LEADER NOTES" in stub.prompts[0]
+        assert "pricing by Friday" in stub.prompts[0]
+
+        events.clear()
+        eng2 = CoachingEngine(AskStub([]), emit)
+        await eng2.ask()
+        await asyncio.sleep(0.05)
+        assert events[-1] == {"type": "ask", "state": "empty"}, events
+    asyncio.run(run())
+
+
+def test_clean_email():
+    from post_meeting_synthesis import clean_email
+    raw = "Sure! Here's the draft:\n```\n**Subject:** Q3 pricing decision\n\nHi all,\nWe agreed.\n\nThanks,\n```"
+    out = clean_email(raw)
+    assert out.startswith("Subject: Q3 pricing decision"), out
+    assert "**" not in out and "```" not in out and out.endswith("Thanks,"), out
+
+
+test_ask_now()
+test_clean_email()
+print("ask + follow-up ok")

@@ -14,6 +14,10 @@ html, body, #root { background: transparent !important; margin: 0; overflow: hid
 .dot.me { background: #6bffa8; box-shadow: 0 0 8px #6bffa8; } .dot.them { background: #6bb8ff; }
 .lock { margin-left: auto; color: #ffd36b; }
 .hud-alert { margin-top: 6px; font-size: 12px; color: #ffb86b; }
+.hud-ask { margin-top: 6px; font-size: 12px; letter-spacing: .04em; color: #f6d27a; }
+.hud-ask.pending { animation: hud-pulse 1.2s ease-in-out infinite; }
+.hud-ask.empty { color: rgba(255,255,255,.55); }
+@keyframes hud-pulse { 50% { opacity: .45; } }
 .hud-card { margin-top: 8px; animation: in .18s ease-out; }
 .hud-card .kind { font-size: 10px; letter-spacing: .14em; color: #6bffa8; }
 .hud-card.p1 .kind { color: #ff7b7b; }

@@ -215,6 +215,8 @@ def get_meeting_details(meeting_id: int, db: Session = Depends(get_db)):
         "transcript_filepath": meeting.transcript_filepath,
         "lps_score": meeting.lps_score,
         "strategic_alternatives": meeting.strategic_alternatives,
+        "notes": meeting.notes,
+        "followup_email": meeting.followup_email,
         "transcripts": transcripts,
         "insights": _insights(meeting),
         "metrics": metrics
@@ -249,6 +251,12 @@ def export_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
         export_content += "## Strategic Executive Rerouting & Pivots\n"
         export_content += f"{meeting.strategic_alternatives}\n\n"
         
+    if (meeting.notes or "").strip():
+        export_content += "## My Notes\n" + meeting.notes.strip() + "\n\n"
+
+    if meeting.followup_email:
+        export_content += "## Follow-up Email\n```\n" + meeting.followup_email + "\n```\n\n"
+
     cards = _insights(meeting)
     if cards:
         export_content += "## Live Coaching (questions & pivots suggested during the meeting)\n"
@@ -299,6 +307,35 @@ def open_meeting_folder(meeting_id: int, db: Session = Depends(get_db)):
     return {"error": "File not found"}
 
 _synthesis_lock = asyncio.Lock()
+
+
+class NotesUpdate(BaseModel):
+    notes: str
+
+
+@app.put("/meetings/{meeting_id}/notes")
+def update_notes(meeting_id: int, body: NotesUpdate, db: Session = Depends(get_db)):
+    """Autosaved from the Live view and Meeting History. During a live meeting the notes also steer coaching."""
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(404, "Meeting not found")
+    meeting.notes = body.notes[:20000]
+    db.commit()
+    session = realtime.live_session(meeting_id)
+    if session is not None:
+        session.coach.notes = meeting.notes
+    return {"status": "saved"}
+
+
+@app.post("/meetings/{meeting_id}/followup")
+async def draft_followup(meeting_id: int):
+    if realtime.runtime.sessions:
+        return {"status": "error", "error": "A meeting is in progress. Draft the follow-up after it ends so live coaching stays fast."}
+    if _synthesis_lock.locked():
+        return {"status": "error", "error": "The local LLM is busy with another summary. Try again when it finishes."}
+    async with _synthesis_lock:
+        email, error = await PostMeetingSynthesis(lm_client).generate_followup(meeting_id)
+    return {"status": "success", "email": email} if email else {"status": "error", "error": error}
 
 
 @app.post("/meetings/{meeting_id}/synthesize")

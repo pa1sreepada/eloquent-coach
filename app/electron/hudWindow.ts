@@ -54,6 +54,15 @@ export function registerHudIpc(preload: string, devUrl: string | undefined, dist
     registerHudShortcuts()
   })
   ipcMain.on('hud:hide', () => { hud?.hide(); unregisterHudShortcuts() })
+  // While a meeting is live, ⌘⇧↩ asks for "what do I say now?" from any app (Zoom, Teams, Keynote…).
+  ipcMain.on('meeting:live', (_e, meetingId: unknown) => {
+    liveMeetingId = typeof meetingId === 'number' ? meetingId : null
+    if (liveMeetingId != null) {
+      if (!globalShortcut.isRegistered(ASK_SHORTCUT)) globalShortcut.register(ASK_SHORTCUT, askNow)
+    } else {
+      globalShortcut.unregister(ASK_SHORTCUT)
+    }
+  })
   ipcMain.on('hud:interactive', (_e, on: unknown) => {
     hud?.setIgnoreMouseEvents(!on, { forward: true })
   })
@@ -61,6 +70,15 @@ export function registerHudIpc(preload: string, devUrl: string | undefined, dist
   screen.on('display-added', placeHud)
   screen.on('display-removed', placeHud)
   screen.on('display-metrics-changed', placeHud)
+}
+
+const ASK_SHORTCUT = 'CommandOrControl+Shift+Return'
+let liveMeetingId: number | null = null
+
+function askNow() {
+  if (liveMeetingId == null) return
+  // The card comes back over the events socket to the HUD and the Live view.
+  fetch(`http://127.0.0.1:8000/meetings/${liveMeetingId}/ask`, { method: 'POST' }).catch(() => {})
 }
 
 const SHORTCUTS: Record<string, () => void> = {

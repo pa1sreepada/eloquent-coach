@@ -39,6 +39,8 @@ class Meeting(Base):
     prep_notes = Column(Text, nullable=True)
     lps_score = Column(Float, nullable=True)
     strategic_alternatives = Column(Text, nullable=True) # Stored as JSON string
+    notes = Column(Text, nullable=True)            # typed by the leader during/after the meeting
+    followup_email = Column(Text, nullable=True)   # drafted on demand from the summary
 
     transcripts = relationship("Transcript", back_populates="meeting")
     insights = relationship("Insight", back_populates="meeting")
@@ -121,6 +123,9 @@ def init_db():
             conn.execute(text("ALTER TABLE meetings ADD COLUMN lps_score FLOAT"))
         if "strategic_alternatives" not in columns:
             conn.execute(text("ALTER TABLE meetings ADD COLUMN strategic_alternatives TEXT"))
+        for col in ("notes", "followup_email"):
+            if col not in columns:
+                conn.execute(text(f"ALTER TABLE meetings ADD COLUMN {col} TEXT"))
             
         columns = [c['name'] for c in inspector.get_columns("transcripts")]
         for col, ddl in (("start_ms", "INTEGER"), ("end_ms", "INTEGER"), ("utterance_id", "TEXT")):

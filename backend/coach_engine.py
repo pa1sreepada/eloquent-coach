@@ -82,13 +82,15 @@ TRIGGER_GUIDANCE = {
     "my_turn": "The leader has been listening for a while. Give one 'question' card that raises the level: the decision, trade-off or hidden assumption behind what was just said.",
     "commitment_no_owner": "A commitment was just made with no named owner or date. Give an 'alignment' card that pins down who owns it and by when.",
     "monologue": "The leader has been talking for over 90 seconds. Give a 'bluf' card: the headline lands their main point in one sentence; the body is a short question that hands the floor back.",
+    "ask": "The leader just pressed 'What do I say now?'. Give exactly one card: the single best thing to say in the next 10 seconds, given the last exchange. If a participant just asked something, answer it ('bluf'); otherwise the strongest question, counterpoint, alignment move or bottom line. Use LEADER NOTES if relevant. Always return one card.",
     "heartbeat": "Periodic check; nothing specific triggered. Return a card only for a clear opportunity: an unowned decision, an unaddressed risk, agenda drift, a question nobody answered, or (when hosting) a story worth probing deeper. Otherwise return no cards.",
 }
 
 MAX_TRANSCRIPT_CHARS = 2500
 MAX_HEADLINE_WORDS = 18   # hard cap; anything longer can't be read at a glance
 
-TRIGGER_PRIORITY = {"question_to_me": 1, "objection": 1, "commitment_no_owner": 2,
+# "ask" (the leader pressed the hotkey) outranks and preempts everything.
+TRIGGER_PRIORITY = {"ask": 0, "question_to_me": 1, "objection": 1, "commitment_no_owner": 2,
                     "monologue": 2, "my_turn": 2, "heartbeat": 3}
 
 
@@ -265,6 +267,12 @@ class CoachingEngine:
         self._shown: list[str] = []
         self.coord = coordinator or LlmCoordinator()
         self._deferred: tuple[str, float] | None = None   # (trigger, monotonic time)
+        self.notes = ""   # leader's live notes; updated from the notes endpoint
+
+    async def ask(self) -> None:
+        """On-demand 'what do I say now?' card."""
+        await self.emit({"type": "ask", "state": "pending"})
+        self._launch("ask")
 
     async def on_final(self, speaker: str, text: str, t0_ms: int, t1_ms: int) -> None:
         u = self.telemetry.ingest(speaker, text, t0_ms, t1_ms)
@@ -324,6 +332,8 @@ class CoachingEngine:
             parts.append(f"LEADER PREFERENCES: {self.instructions}")
         if self.prep_notes:
             parts.append("PREP NOTES:\n" + select_prep_notes(self.prep_notes, transcript[-1500:]))
+        if self.notes.strip():
+            parts.append("LEADER NOTES (typed by Me during this meeting, most recent last):\n" + self.notes.strip()[-600:])
         parts.append("TRANSCRIPT (most recent last):\n" + (transcript or "(silence)"))
         parts.append(f"SIGNALS: leader talk share {snap.talk_share_recent_pct:.0f}%, "
                      f"room sentiment {snap.room_sentiment:+.2f} (-1 tense, +1 positive), "
@@ -343,6 +353,14 @@ class CoachingEngine:
         return False
 
     async def _generate(self, trigger: str, prio: int) -> None:
+        emitted = 0
+        try:
+            emitted = await self._generate_cards(trigger, prio)
+        finally:
+            if trigger == "ask":   # tell the UI the request finished, even when nothing survived
+                await self.emit({"type": "ask", "state": "done" if emitted else "empty"})
+
+    async def _generate_cards(self, trigger: str, prio: int) -> int:
         t = time.perf_counter()
         self.coord.busy(True)
         try:
@@ -352,12 +370,13 @@ class CoachingEngine:
             raise
         except Exception as err:  # noqa: BLE001
             logger.warning("coach LLM call failed (%s): %r", trigger, err)
-            return
+            return 0
         finally:
             self.coord.busy(False)
         latency_ms = (time.perf_counter() - t) * 1000
-        sources = f"{self.prep_notes}\n{self.agenda}\n" + "\n".join(u.text for u in self.telemetry.history)
-        for raw in data.get("cards", [])[:2]:
+        sources = f"{self.prep_notes}\n{self.agenda}\n{self.notes}\n" + "\n".join(u.text for u in self.telemetry.history)
+        emitted = 0
+        for raw in data.get("cards", [])[:1 if trigger == "ask" else 2]:
             kind = raw.get("kind") if raw.get("kind") in CARD_KINDS else "question"
             headline = str(raw.get("headline", "")).strip().strip('"')
             body = str(raw.get("body", "")).strip()
@@ -369,8 +388,10 @@ class CoachingEngine:
             if self._is_duplicate(headline):
                 continue
             card = CoachCard(id=uuid.uuid4().hex[:10], kind=kind, headline=headline,
-                             body=body, priority=prio,
-                             ttl_s=45 if prio == 1 else 75, trigger=trigger,
+                             body=body, priority=max(prio, 1),
+                             ttl_s=45 if prio <= 1 else 75, trigger=trigger,
                              created_at_ms=int(time.time() * 1000))
             logger.info("card %s/%s in %.0fms: %s", trigger, kind, latency_ms, headline)
             await self.emit(card.to_json())
+            emitted += 1
+        return emitted
