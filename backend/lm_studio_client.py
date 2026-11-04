@@ -4,6 +4,8 @@ import re
 
 import httpx
 
+import llm_provider
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONTEXT_TOKENS = 4096   # conservative when the server can't tell us
@@ -27,6 +29,7 @@ class LMStudioClient:
         # empty content; the briefing doesn't benefit from it. Dropped if the server rejects it.
         self._no_reasoning = True
         self.chars_per_token = DEFAULT_CHARS_PER_TOKEN   # calibrated from real usage below
+        self.last_error: str | None = None               # user-facing reason the last call returned ""
 
     def _config(self) -> tuple[str, str]:
         """Current (api_url, model) from Settings; model may be "" (auto-detect)."""
@@ -46,28 +49,29 @@ class LMStudioClient:
         if configured:
             return configured
         try:
-            res = await client.get(f"{base_url}/models", timeout=4.0)
-            ids = [m["id"] for m in res.json().get("data", []) if "embed" not in m.get("id", "").lower()]
-            if ids:
-                return ids[0]
+            provider = await llm_provider.detect_provider(client, base_url)
+            picked = llm_provider.pick_model(await llm_provider.list_models(client, base_url, provider))
+            if picked:
+                return picked
         except Exception as err:  # noqa: BLE001
             logger.debug("model auto-detect failed at %s: %s", base_url, err)
         return "local-model"
 
     async def _context_tokens(self, client: httpx.AsyncClient, base_url: str, model: str) -> int:
-        """Loaded context window, so long transcripts are chunked instead of overflowing."""
+        """Context window the server will actually use, so long transcripts are chunked instead of overflowing."""
         key = (base_url, model)
         if key not in self._ctx_cache:
-            ctx = DEFAULT_CONTEXT_TOKENS
-            root = re.sub(r"/v1$", "", base_url)
-            try:  # LM Studio REST API
-                res = await client.get(f"{root}/api/v0/models/{model}", timeout=4.0)
-                if res.status_code == 200:
-                    info = res.json()
-                    ctx = int(info.get("loaded_context_length") or info.get("max_context_length") or ctx)
+            ctx = None
+            try:
+                provider = await llm_provider.detect_provider(client, base_url)
+                for m in await llm_provider.list_models(client, base_url, provider):
+                    if m.id == model:
+                        ctx = m.context_length
+                        break
             except Exception:  # noqa: BLE001
                 pass
-            self._ctx_cache[key] = ctx
+            # Ollama only reports context for a loaded model; its default when unloaded is ~4k.
+            self._ctx_cache[key] = int(ctx or DEFAULT_CONTEXT_TOKENS)
         return self._ctx_cache[key]
 
     async def context_tokens(self) -> int:
@@ -80,6 +84,7 @@ class LMStudioClient:
         """One chat completion; returns "" on failure. Strips <think> blocks from reasoning models."""
         base_url, configured = self._config()
         url = f"{base_url}/chat/completions"
+        self.last_error = None
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
                 payload = {
@@ -97,7 +102,10 @@ class LMStudioClient:
                     self._no_reasoning = False
                     payload.pop("reasoning_effort")
                     response = await client.post(url, json=payload)
-                response.raise_for_status()
+                if response.status_code >= 400:
+                    name = llm_provider.provider_name(await llm_provider.detect_provider(client, base_url))
+                    raise llm_provider.LlmError(
+                        f"{name} error {response.status_code}: {llm_provider.error_detail(response)}")
                 data = response.json()
                 prompt_tokens = (data.get("usage") or {}).get("prompt_tokens")
                 if prompt_tokens:
@@ -109,5 +117,6 @@ class LMStudioClient:
                     logger.warning("LLM hit max_tokens (%d); output may be truncated", max_tokens)
                 return strip_reasoning(content)
             except Exception as e:  # noqa: BLE001
-                logger.error(f"Error calling LLM API at {url}: {e}")
+                self.last_error = llm_provider.describe_exception(e, base_url)
+                logger.error("Error calling LLM API at %s: %s", url, self.last_error)
                 return ""

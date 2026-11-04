@@ -31,7 +31,8 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isHudMode, setIsHudMode] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
-  const [asking, setAsking] = useState<'pending' | 'empty' | null>(null);
+  const [asking, setAsking] = useState<'pending' | 'empty' | 'error' | null>(null);
+  const [llmError, setLlmError] = useState<string | null>(null);
   const [pane, setPane] = useState<'coaching' | 'notes'>('coaching');
   const notes = useNotesAutosave(meetingId);
 
@@ -68,7 +69,12 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
   const onCoachEvent = useCallback((e: CoachEvent) => {
     if (e.type === 'ask') {
       setAsking(e.state === 'done' ? null : e.state);
-      if (e.state === 'empty') setTimeout(() => setAsking(a => (a === 'empty' ? null : a)), 3000);
+      if (e.state === 'error' && e.message) setLlmError(e.message);
+      if (e.state === 'empty' || e.state === 'error') {
+        setTimeout(() => setAsking(a => (a === e.state ? null : a)), e.state === 'error' ? 6000 : 3000);
+      }
+    } else if (e.type === 'llm_status') {
+      setLlmError(e.ok ? null : e.message);
     } else if (e.type === 'transcript') {
       setTranscripts(prev => applyTranscript(prev, e));
     } else if (e.type === 'card') {
@@ -94,6 +100,7 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
     setConnectionStatus('connecting');
     setIsHudMode(false);
     setAsking(null);
+    setLlmError(null);
     setPane('coaching');
     isInitializingRef.current = false;
   };
@@ -207,11 +214,16 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
         </div>
       </header>
 
-      {(captureError || alerts.length > 0 || agenda || prepNotes || asking === 'empty') && (
+      {(captureError || llmError || alerts.length > 0 || agenda || prepNotes || asking === 'empty') && (
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
           {captureError && (
             <span style={chip('rgba(239,68,68,0.12)', 'var(--color-risk)')}>
               Audio capture failed: {captureError}. Check microphone permission and devices in Settings.
+            </span>
+          )}
+          {llmError && (
+            <span title={llmError} style={chip('rgba(239,68,68,0.12)', 'var(--color-risk)')}>
+              Coaching unavailable: {llmError} Check the LLM in Settings.
             </span>
           )}
           {asking === 'empty' && <span style={chip('rgba(255,255,255,0.06)', 'var(--text-secondary)')}>Nothing new to add right now</span>}

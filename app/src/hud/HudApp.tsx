@@ -18,7 +18,8 @@ export default function HudApp() {
   const [live, setLive] = useState<{ speaker: string; text: string } | null>(null)
   const [script, setScript] = useState<string>('')
   const [pointer, setPointer] = useState(0)
-  const [asking, setAsking] = useState<'pending' | 'empty' | null>(null)
+  const [asking, setAsking] = useState<{ state: 'pending' | 'empty' | 'error'; message?: string } | null>(null)
+  const [llmError, setLlmError] = useState<string | null>(null)
   const aligner = useRef(createAligner(''))
 
   // Main process tells us which meeting to follow + hotkeys.
@@ -45,9 +46,12 @@ export default function HudApp() {
 
   useCoachEvents(meetingId, (e: CoachEvent) => {
     if (e.type === 'ask') {
-      setAsking(e.state === 'done' ? null : e.state)
-      if (e.state === 'empty') window.setTimeout(() => setAsking(a => (a === 'empty' ? null : a)), 3000)
+      setAsking(e.state === 'done' ? null : { state: e.state, message: e.message })
+      if (e.state === 'empty' || e.state === 'error') {
+        window.setTimeout(() => setAsking(a => (a?.state === e.state ? null : a)), e.state === 'error' ? 6000 : 3000)
+      }
     }
+    else if (e.type === 'llm_status') setLlmError(e.ok ? null : e.message)
     else if (e.type === 'card') dispatch({ type: 'card', card: e })
     else if (e.type === 'telemetry') setTele(e)
     else if (e.type === 'asr_status') setAsr(e)
@@ -84,8 +88,14 @@ export default function HudApp() {
 
         {alert && <div className="hud-alert">{alert}</div>}
 
+        {llmError && <div className="hud-llm-error" title={llmError}>Coaching unavailable: {llmError}</div>}
+
         {asking && (
-          <div className={`hud-ask ${asking}`}>{asking === 'pending' ? 'Thinking…' : 'Nothing new to add right now'}</div>
+          <div className={`hud-ask ${asking.state}`}>
+            {asking.state === 'pending' ? 'Thinking…'
+              : asking.state === 'error' ? (llmError ? 'Couldn’t reach the coach' : asking.message || 'Couldn’t reach the coach')
+              : 'Nothing new to add right now'}
+          </div>
         )}
 
         {card ? (

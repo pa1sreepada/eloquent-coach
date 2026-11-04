@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Save, Settings2, Database, Mic, RefreshCw } from 'lucide-react';
 import AsrSettingsPanel, { type AsrSettings } from './AsrSettingsPanel';
 import StoragePanel from './StoragePanel';
+import LlmConnectionPanel from './LlmConnectionPanel';
 
 interface Settings extends AsrSettings {
   llm_api_url: string;
@@ -140,7 +141,7 @@ export default function SettingsView() {
         {/* LLM Settings */}
         <div className="glass-panel" style={{ padding: '2rem' }}>
           <h2 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Database size={20} color="var(--accent-primary)" /> Local LLM Engine (LM Studio)
+            <Database size={20} color="var(--accent-primary)" /> Local LLM Engine (LM Studio or Ollama)
           </h2>
           
           <div style={{ marginBottom: '1.5rem' }}>
@@ -160,8 +161,14 @@ export default function SettingsView() {
               }}
             />
             <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
-              The endpoint where your local inference server is running.
+              The endpoint where your local inference server is running. LM Studio, Ollama and other OpenAI-compatible servers are detected automatically.
             </small>
+            <LlmConnectionPanel
+              url={settings.llm_api_url}
+              model={settings.llm_model}
+              modelListId="llm-model-options"
+              onUrlChange={url => setSettings(prev => ({ ...prev, llm_api_url: url }))}
+            />
           </div>
 
           <div>
@@ -192,9 +199,10 @@ export default function SettingsView() {
             <input 
               type="text" 
               name="llm_model"
+              list="llm-model-options"
               value={settings.llm_model}
               onChange={handleChange}
-              placeholder="e.g. google/gemma-4-e4b — blank uses the loaded model"
+              placeholder="e.g. google/gemma-4-e4b (LM Studio) or gemma4:e4b (Ollama). Blank uses the loaded model"
               style={{ 
                 width: '100%', 
                 padding: '0.8rem', 

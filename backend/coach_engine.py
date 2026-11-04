@@ -12,6 +12,7 @@ from typing import Awaitable, Callable
 
 import httpx
 
+import llm_provider
 from telemetry import COMMITMENT_MARKERS, ME, OBJECTION_MARKERS, OWNER_MARKERS, SpeechTelemetry, Utterance
 
 logger = logging.getLogger(__name__)
@@ -151,21 +152,53 @@ class TriggerPolicy:
 class OpenAICompatClient:
     """Pooled client for LM Studio / Ollama / llama-server (OpenAI-compatible)."""
 
+    WARMUP_TIMEOUT_S = 180.0   # a cold model load can take minutes; live cards keep the short timeout
+
     def __init__(self, base_url: str, model: str | None = None, timeout_s: float = 20.0):
         self.base_url = base_url.rstrip("/")
         self._model = model
         self._http = httpx.AsyncClient(timeout=timeout_s)
         self._no_reasoning = True   # cards are latency-critical; thinking only adds delay
+        self.provider: str | None = None
 
     async def model_id(self) -> str:
+        """Configured model, else one the server already has loaded (Ollama, LM Studio or generic)."""
         if self._model is None:
+            if self.provider is None:
+                self.provider = await llm_provider.detect_provider(self._http, self.base_url)
             try:
-                res = await self._http.get(f"{self.base_url}/models")
-                ids = [m["id"] for m in res.json().get("data", []) if "embed" not in m["id"].lower()]
-                self._model = ids[0] if ids else "local-model"
-            except Exception:  # noqa: BLE001
-                self._model = "local-model"
+                models = await llm_provider.list_models(self._http, self.base_url, self.provider)
+            except httpx.HTTPError as err:
+                raise llm_provider.LlmError(llm_provider.describe_exception(err, self.base_url, self.provider))
+            picked = llm_provider.pick_model(models)
+            if picked is None:
+                if self.provider != llm_provider.GENERIC:
+                    raise llm_provider.LlmError(
+                        f"{llm_provider.provider_name(self.provider)} at {self.base_url} has no chat models installed.")
+                return "local-model"   # single-model servers (llama-server) ignore the name; retry discovery next time
+            self._model = picked
+            logger.info("coach LLM: %s model %s", llm_provider.provider_name(self.provider), picked)
         return self._model
+
+    async def _chat(self, payload: dict, timeout: float | None = None) -> httpx.Response:
+        kw = {"timeout": timeout} if timeout else {}
+        if self._no_reasoning:
+            payload["reasoning_effort"] = "none"   # LM Studio and Ollama both map "none" to thinking off
+        res = await self._http.post(f"{self.base_url}/chat/completions", json=payload, **kw)
+        if res.status_code in (400, 422) and self._no_reasoning:   # server doesn't know the field
+            self._no_reasoning = False
+            payload.pop("reasoning_effort")
+            res = await self._http.post(f"{self.base_url}/chat/completions", json=payload, **kw)
+        if res.status_code >= 400:
+            name = llm_provider.provider_name(self.provider or llm_provider.guess_provider(self.base_url))
+            raise llm_provider.LlmError(f"{name} error {res.status_code}: {llm_provider.error_detail(res)}")
+        return res
+
+    async def warmup(self) -> None:
+        """Load the model before the first card is due, so that card doesn't hit the short timeout."""
+        payload = {"model": await self.model_id(), "messages": [{"role": "user", "content": "ok"}],
+                   "max_tokens": 1, "temperature": 0}
+        await self._chat(payload, timeout=self.WARMUP_TIMEOUT_S)
 
     async def json_completion(self, system: str, user: str, schema: dict, max_tokens: int = 220) -> dict:
         payload = {
@@ -175,15 +208,8 @@ class OpenAICompatClient:
             "max_tokens": max_tokens,
             "response_format": {"type": "json_schema", "json_schema": {"name": "cards", "schema": schema}},
         }
-        if self._no_reasoning:
-            payload["reasoning_effort"] = "none"
-        res = await self._http.post(f"{self.base_url}/chat/completions", json=payload)
-        if res.status_code in (400, 422) and self._no_reasoning:   # server doesn't know the field
-            self._no_reasoning = False
-            payload.pop("reasoning_effort")
-            res = await self._http.post(f"{self.base_url}/chat/completions", json=payload)
-        res.raise_for_status()
-        content = res.json()["choices"][0]["message"]["content"] or ""
+        res = await self._chat(payload)
+        content = res.json()["choices"][0]["message"].get("content") or ""
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
         match = re.search(r"\{.*\}", content, re.S)
         return json.loads(match.group(0)) if match else {"cards": []}
@@ -268,6 +294,34 @@ class CoachingEngine:
         self.coord = coordinator or LlmCoordinator()
         self._deferred: tuple[str, float] | None = None   # (trigger, monotonic time)
         self.notes = ""   # leader's live notes; updated from the notes endpoint
+        self._llm_state: tuple[bool, str] | None = None
+        self._last_call_failed = False
+
+    async def _set_llm_status(self, ok: bool, message: str = "") -> None:
+        """Tell the HUD when coaching stops working (and when it recovers); silent while healthy."""
+        prev, self._llm_state = self._llm_state, (ok, message)
+        if prev == self._llm_state or (prev is None and ok):
+            return
+        await self.emit({"type": "llm_status", "ok": ok, "message": message})
+
+    def _describe(self, err: Exception) -> str:
+        return llm_provider.describe_exception(err, getattr(self.llm, "base_url", ""),
+                                               getattr(self.llm, "provider", None))
+
+    async def warmup(self) -> None:
+        """Load the model at meeting start; surfaces "can't load" problems before the first card is due."""
+        warm = getattr(self.llm, "warmup", None)
+        if warm is None:
+            return
+        try:
+            await warm()
+            await self._set_llm_status(True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            msg = self._describe(err)
+            logger.warning("coach LLM warmup failed: %s", msg)
+            await self._set_llm_status(False, msg)
 
     async def ask(self) -> None:
         """On-demand 'what do I say now?' card."""
@@ -354,11 +408,17 @@ class CoachingEngine:
 
     async def _generate(self, trigger: str, prio: int) -> None:
         emitted = 0
+        self._last_call_failed = False
         try:
             emitted = await self._generate_cards(trigger, prio)
         finally:
             if trigger == "ask":   # tell the UI the request finished, even when nothing survived
-                await self.emit({"type": "ask", "state": "done" if emitted else "empty"})
+                if emitted:
+                    await self.emit({"type": "ask", "state": "done"})
+                elif self._last_call_failed and self._llm_state:
+                    await self.emit({"type": "ask", "state": "error", "message": self._llm_state[1]})
+                else:
+                    await self.emit({"type": "ask", "state": "empty"})
 
     async def _generate_cards(self, trigger: str, prio: int) -> int:
         t = time.perf_counter()
@@ -369,10 +429,14 @@ class CoachingEngine:
         except asyncio.CancelledError:
             raise
         except Exception as err:  # noqa: BLE001
-            logger.warning("coach LLM call failed (%s): %r", trigger, err)
+            msg = self._describe(err)
+            logger.warning("coach LLM call failed (%s): %s", trigger, msg)
+            self._last_call_failed = True
+            await self._set_llm_status(False, msg)
             return 0
         finally:
             self.coord.busy(False)
+        await self._set_llm_status(True)
         latency_ms = (time.perf_counter() - t) * 1000
         sources = f"{self.prep_notes}\n{self.agenda}\n{self.notes}\n" + "\n".join(u.text for u in self.telemetry.history)
         emitted = 0

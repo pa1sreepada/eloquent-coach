@@ -94,7 +94,7 @@ Then open **Settings → Audio Devices** and pick your microphone and the loopba
 
 ### 2. Connect an LLM
 
-Start LM Studio's local server (or Ollama) with a small instruct model — e.g. `google/gemma-4-e4b`, Qwen 3 4B/8B, or Llama 3.x 8B. In **Settings → Local LLM Engine** set the API URL and, optionally, the model ID. *Coaching Instructions* (optional) lets you add personal preferences, such as "push me to lead with the answer", to every live coaching request. When the LLM runs on the same GPU as the ASR, the adaptive planner automatically reserves headroom for it.
+Start LM Studio's local server (or Ollama) with a small instruct model — e.g. `google/gemma-4-e4b`, Qwen 3 4B/8B, or Llama 3.x 8B. In **Settings → Local LLM Engine** pick **LM Studio** or **Ollama** (or type any OpenAI-compatible URL) and click **Test connection**: the app detects the server, lists its models and runs a real request. Leave *Model ID* blank to use whichever model the server already has loaded. On a 16 GB Mac keep the model around 4–9B; larger models may not fit next to live transcription. *Coaching Instructions* (optional) lets you add personal preferences, such as "push me to lead with the answer", to every live coaching request. When the LLM runs on the same GPU as the ASR, the adaptive planner automatically reserves headroom for it.
 
 ### 3. Run a meeting
 
@@ -214,7 +214,7 @@ docs/refactor/       architecture & design notes
 | `npm run dev` hangs or fails with *Cannot find module …rolldown-binding…* / *esbuild for another platform* | A native binary in `node_modules` was removed — often by corporate endpoint-security software. Re-run `npm ci`; if it keeps disappearing, ask IT to allow-list `app/node_modules/@rolldown`, `@esbuild` and `electron`. |
 | "Python backend not found" in the Electron console | Run `python3 scripts/setup.py`, or set `ELOQUENT_PYTHON`. |
 | Transcripts lag noticeably | Open **Settings → Transcription** and click *Re-measure this machine*; close other GPU-heavy apps; keep *Adaptive* on. |
-| No coaching cards | Check the LLM URL in Settings and that a model is loaded (LM Studio loads models just-in-time; the first request can take 10+ s). |
+| No coaching cards | The HUD and Live Meeting view show *Coaching unavailable: …* with the server's reason (unreachable, model too large for memory, ...). Use **Settings → Test connection** to check the URL and model. The model is warmed up when a meeting starts, so a cold load doesn't time out the first card. |
 | Participant side is silent | Verify the loopback device in Settings and that your call app outputs to it. |
 | Model download fails with `CERTIFICATE_VERIFY_FAILED` (corporate TLS proxy, or macOS python.org builds) | The backend verifies against the OS trust store via `truststore`; re-run `python3 scripts/setup.py` so it is installed. Don't set `SSL_CERT_FILE` unless it points to a bundle that includes your company's root CA (an explicit value is respected). |
 | Model download fails (403 Forbidden, proxy, offline) | Copy files you already have: `python3 scripts/import_models.py "~/Library/Application Support/com.pais.handy/models"` (any file or folder works). They go to `backend/models/`; restart the backend. |

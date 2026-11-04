@@ -190,3 +190,129 @@ def test_clean_email():
 test_ask_now()
 test_clean_email()
 print("ask + follow-up ok")
+
+
+# --- LLM server flexibility (Ollama / LM Studio / generic), mocked HTTP ------
+import json
+import httpx
+import llm_provider
+from coach_engine import OpenAICompatClient
+from lm_studio_client import LMStudioClient
+
+OOM = "model requires 16.9 GiB but only 11.3 GiB are available (after 512.0 MiB overhead)"
+
+
+def fake_server(kind: str, *, chat_status: int = 200, loaded: str | None = None):
+    """MockTransport imitating the endpoints each server really exposes."""
+    seen = {"chat_models": []}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        path = req.url.path
+        if path == "/v1/chat/completions":
+            seen["chat_models"].append(json.loads(req.content)["model"])
+            if chat_status != 200:
+                return httpx.Response(chat_status, json={"error": {"message": OOM, "type": "api_error"}})
+            body = {"cards": [{"kind": "question", "headline": "Who owns the pricing decision?", "body": ""}]}
+            return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(body)}}]})
+        if kind == "ollama":
+            if path == "/api/version":
+                return httpx.Response(200, json={"version": "0.13.0"})
+            if path == "/api/tags":
+                return httpx.Response(200, json={"models": [
+                    {"name": "qwen3.8:27b", "size": 18_174_721_847},
+                    {"name": "nomic-embed-text:latest", "size": 1},
+                    {"name": "gemma4:e4b", "size": 3_000_000_000}]})
+            if path == "/api/ps":
+                return httpx.Response(200, json={"models": [{"name": loaded, "context_length": 8192}] if loaded else []})
+            if path == "/v1/models":
+                return httpx.Response(200, json={"data": [{"id": "qwen3.8:27b"}, {"id": "gemma4:e4b"}]})
+        if kind == "lmstudio":
+            if path == "/api/v0/models":
+                return httpx.Response(200, json={"data": [
+                    {"id": "google/gemma-4-12b-qat", "type": "vlm", "state": "not-loaded", "max_context_length": 131072},
+                    {"id": "text-embedding-nomic", "type": "embeddings", "state": "loaded"},
+                    {"id": "google/gemma-4-e4b", "type": "vlm", "state": "loaded", "loaded_context_length": 16384}]})
+            if path == "/v1/models":
+                return httpx.Response(200, json={"data": [{"id": "google/gemma-4-12b-qat"}, {"id": "google/gemma-4-e4b"}]})
+        if kind == "generic" and path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "my-model.gguf"}]})
+        return httpx.Response(404, json={"error": "not found"})
+
+    return httpx.MockTransport(handler), seen
+
+
+def test_provider_detection_and_model_choice():
+    async def run():
+        for kind, expected, loaded, want in [
+            ("ollama", llm_provider.OLLAMA, "gemma4:e4b", "gemma4:e4b"),       # loaded model beats list order
+            ("ollama", llm_provider.OLLAMA, None, "qwen3.8:27b"),              # nothing loaded: server order
+            ("lmstudio", llm_provider.LMSTUDIO, None, "google/gemma-4-e4b"),  # LM Studio "state": "loaded"
+            ("generic", llm_provider.GENERIC, None, "my-model.gguf"),
+        ]:
+            transport, _ = fake_server(kind, loaded=loaded)
+            async with httpx.AsyncClient(transport=transport) as c:
+                url = "http://127.0.0.1:9999/v1"
+                provider = await llm_provider.detect_provider(c, url)
+                assert provider == expected, (kind, provider)
+                models = await llm_provider.list_models(c, url, provider)
+                assert all("embed" not in m.id for m in models), models
+                assert llm_provider.pick_model(models) == want, (kind, models)
+
+        # Post-meeting client reads the real context window from Ollama (loaded) and LM Studio.
+        lm = LMStudioClient()
+        for kind, loaded, model, ctx in [("ollama", "gemma4:e4b", "gemma4:e4b", 8192),
+                                         ("ollama", None, "gemma4:e4b", 4096),
+                                         ("lmstudio", None, "google/gemma-4-e4b", 16384)]:
+            lm._ctx_cache.clear()
+            transport, _ = fake_server(kind, loaded=loaded)
+            async with httpx.AsyncClient(transport=transport) as c:
+                assert await lm._context_tokens(c, "http://127.0.0.1:9999/v1", model) == ctx, (kind, loaded)
+    asyncio.run(run())
+
+
+def test_llm_failure_reaches_hud():
+    """A server error (Ollama out of memory) surfaces as llm_status + ask error, and clears on recovery."""
+    async def run():
+        events = []
+        async def emit(e): events.append(e)
+        llm = OpenAICompatClient("http://127.0.0.1:11434/v1")
+        transport, seen = fake_server("ollama", chat_status=500)
+        llm._http = httpx.AsyncClient(transport=transport)
+        eng = CoachingEngine(llm, emit)
+
+        await eng.warmup()
+        assert events[-1]["type"] == "llm_status" and not events[-1]["ok"], events
+        assert "Ollama error 500" in events[-1]["message"] and "16.9 GiB" in events[-1]["message"], events[-1]
+
+        events.clear()
+        await eng.ask()
+        await asyncio.sleep(0.05)
+        assert [e["type"] for e in events] == ["ask", "ask"], events   # same error isn't repeated
+        assert events[-1]["state"] == "error" and "16.9 GiB" in events[-1]["message"], events[-1]
+
+        events.clear()   # the user loads a model that fits: coaching recovers
+        transport, seen = fake_server("ollama")
+        await llm._http.aclose()
+        llm._http = httpx.AsyncClient(transport=transport)
+        await eng.ask()
+        await asyncio.sleep(0.05)
+        kinds = [(e["type"], e.get("state"), e.get("ok")) for e in events]
+        assert ("llm_status", None, True) in kinds and ("ask", "done", None) in kinds, kinds
+        await llm.aclose()
+
+        # Unreachable server: a readable message, and model discovery isn't cached as a failure.
+        llm2 = OpenAICompatClient("http://127.0.0.1:1/v1")
+        def refuse(req): raise httpx.ConnectError("refused", request=req)
+        llm2._http = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
+        events.clear()
+        eng2 = CoachingEngine(llm2, emit)
+        await eng2.warmup()
+        assert "Can't reach" in events[-1]["message"], events
+        assert llm2._model is None
+        await llm2.aclose()
+    asyncio.run(run())
+
+
+test_provider_detection_and_model_choice()
+test_llm_failure_reaches_hud()
+print("llm providers ok")

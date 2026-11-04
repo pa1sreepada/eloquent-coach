@@ -345,6 +345,7 @@ async def audio_ws(ws: WebSocket, meeting_id: int):
                 session = loading.result()
                 runtime.session_started(session)
                 session._publish_status(session.controller.status())
+                session._spawn(session.coach.warmup())
                 while backlog:
                     session.asr.push_interleaved(backlog.popleft())
             if msg.get("bytes"):

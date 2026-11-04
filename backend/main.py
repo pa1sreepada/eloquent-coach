@@ -4,6 +4,7 @@ import logging
 import asyncio
 import datetime
 
+import httpx
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, func
@@ -12,6 +13,8 @@ from pydantic import BaseModel
 
 from database import init_db, get_db, engine, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics
 from lm_studio_client import LMStudioClient
+from coach_engine import OpenAICompatClient
+import llm_provider
 from metrics_engine import MetricsEngine
 from post_meeting_synthesis import PostMeetingSynthesis
 from report_generator import ReportGenerator
@@ -104,6 +107,51 @@ def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
     lm_client.base_url = settings.llm_api_url
     # ASR/coach settings are read per meeting by realtime.MeetingSession.
     return {"status": "success", "message": "Settings updated"}
+
+@app.get("/llm/status")
+async def llm_status(url: str | None = None, model: str | None = None, test: bool = False,
+                     db: Session = Depends(get_db)):
+    """Which server is at the URL (Ollama / LM Studio / generic), its models, and optionally a real test call.
+    Defaults to the saved settings; pass url/model to check values before saving."""
+    config = {c.key: c.value for c in db.query(AppConfig).filter(AppConfig.key.in_(("llm_api_url", "llm_model")))}
+    url = (url if url is not None else config.get("llm_api_url") or "").strip().rstrip("/")
+    model = (model if model is not None else config.get("llm_model") or "").strip()
+    if not re.match(r"^https?://", url):
+        raise HTTPException(400, "API Base URL must start with http:// or https://")
+    out = {"url": url, "reachable": False, "provider": None, "provider_name": None, "models": [],
+           "model": model or None, "model_source": "configured" if model else "auto", "ok": False, "message": ""}
+    async with httpx.AsyncClient() as client:
+        try:
+            await client.get(f"{url}/models", timeout=llm_provider.PROBE_TIMEOUT_S)
+        except httpx.HTTPError as err:
+            out["message"] = llm_provider.describe_exception(err, url)
+            return out
+        provider = await llm_provider.detect_provider(client, url)
+        models = await llm_provider.list_models(client, url, provider)
+    out.update(reachable=True, provider=provider, provider_name=llm_provider.provider_name(provider),
+               models=[m.to_json() for m in models])
+    if not model:
+        out["model"] = llm_provider.pick_model(models)
+    if not out["model"] and provider != llm_provider.GENERIC:
+        out["message"] = f"{out['provider_name']} is running but has no chat models installed."
+        return out
+    if model and models and model not in {m.id for m in models}:
+        out["message"] = f"Model '{model}' isn't available on {out['provider_name']}."
+        return out
+    if not test:
+        out["ok"] = True
+        return out
+    probe = OpenAICompatClient(url, model=out["model"])
+    probe.provider = provider
+    try:
+        await probe.warmup()
+        out.update(ok=True, message=f"{out['model']} answered on {out['provider_name']}.")
+    except Exception as err:  # noqa: BLE001
+        out["message"] = llm_provider.describe_exception(err, url, provider)
+    finally:
+        await probe.aclose()
+    return out
+
 
 @app.get("/")
 def read_root():

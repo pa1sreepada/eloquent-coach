@@ -69,10 +69,19 @@ export interface AsrStatusEvent {
   warnings: string[]
 }
 
-/** 'What do I say now?' lifecycle: pending → a card arrives → done, or empty when nothing useful came back. */
+/** 'What do I say now?' lifecycle: pending → a card arrives → done, empty when nothing useful came back,
+ *  or error when the LLM call itself failed (message says why). */
 export interface AskEvent {
   type: 'ask'
-  state: 'pending' | 'done' | 'empty'
+  state: 'pending' | 'done' | 'empty' | 'error'
+  message?: string
 }
 
-export type CoachEvent = TranscriptEvent | CardEvent | TelemetryEvent | AsrStatusEvent | AskEvent
+/** Sent only when coaching stops working (ok=false, with the server's reason) and when it recovers. */
+export interface LlmStatusEvent {
+  type: 'llm_status'
+  ok: boolean
+  message: string
+}
+
+export type CoachEvent = TranscriptEvent | CardEvent | TelemetryEvent | AsrStatusEvent | AskEvent | LlmStatusEvent

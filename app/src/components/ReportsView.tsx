@@ -149,7 +149,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
       }
     } catch (err) {
       console.error('Failed to synthesize:', err);
-      fail('Could not reach the backend or your local LLM. Make sure LM Studio is running.');
+      fail('Could not reach the backend or your local LLM. Make sure LM Studio or Ollama is running.');
     } finally {
       setSynthesizingId(null);
     }
@@ -167,7 +167,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
       if (data.status === 'success') await fetchMeetingDetails(id, true);
       else setFollowupError({ id, message: data.error || 'Could not draft the email.' });
     } catch {
-      setFollowupError({ id, message: 'Could not reach the backend or your local LLM. Make sure LM Studio is running.' });
+      setFollowupError({ id, message: 'Could not reach the backend or your local LLM. Make sure LM Studio or Ollama is running.' });
     } finally {
       setDraftingId(null);
     }

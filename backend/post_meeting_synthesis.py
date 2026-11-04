@@ -213,7 +213,7 @@ class PostMeetingSynthesis:
             raw = await self.lm_client.complete(system, "\n\n".join(header + [f"{label}\n{body}"]),
                                                 max_tokens=SYNTH_OUTPUT_TOKENS, temperature=0.3)
             if not raw:
-                return "Failed to generate synthesis from LLM."
+                return f"Failed to generate synthesis from LLM. {self.lm_client.last_error or ''}".strip()
 
             meeting.summary, meeting.strategic_alternatives = parse_briefing(raw)
             db.commit()
@@ -251,7 +251,8 @@ class PostMeetingSynthesis:
             raw = await self.lm_client.complete(FOLLOWUP_PROMPT, "\n\n".join(parts), max_tokens=500, temperature=0.3)
             email = clean_email(raw)
             if not email:
-                return None, "The local LLM returned nothing. Make sure LM Studio is running."
+                return None, (self.lm_client.last_error
+                              or "The local LLM returned nothing. Make sure LM Studio or Ollama is running.")
             meeting.followup_email = email
             db.commit()
             return email, None

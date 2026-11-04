@@ -17,6 +17,8 @@ html, body, #root { background: transparent !important; margin: 0; overflow: hid
 .hud-ask { margin-top: 6px; font-size: 12px; letter-spacing: .04em; color: #f6d27a; }
 .hud-ask.pending { animation: hud-pulse 1.2s ease-in-out infinite; }
 .hud-ask.empty { color: rgba(255,255,255,.55); }
+.hud-ask.error { color: #ff9b9b; }
+.hud-llm-error { margin-top: 6px; font-size: 12px; line-height: 1.35; color: #ff9b9b; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 @keyframes hud-pulse { 50% { opacity: .45; } }
 .hud-card { margin-top: 8px; animation: in .18s ease-out; }
 .hud-card .kind { font-size: 10px; letter-spacing: .14em; color: #6bffa8; }
