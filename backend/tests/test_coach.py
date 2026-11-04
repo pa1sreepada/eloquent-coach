@@ -313,6 +313,41 @@ def test_llm_failure_reaches_hud():
     asyncio.run(run())
 
 
+def test_structured_output_fallback():
+    """Homebrew Ollama + MLX model answers 501 to response_format; cards must still arrive."""
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        calls.append(body)
+        if "response_format" in body:
+            return httpx.Response(501, json={"error": {"message": "structured output is unavailable"}})
+        cards = {"cards": [{"kind": "risk", "headline": "Who signs off on the budget?", "body": ""}]}
+        return httpx.Response(200, json={"choices": [{"message": {"content": "```json\n" + json.dumps(cards) + "\n```"}}]})
+
+    async def run():
+        llm = OpenAICompatClient("http://127.0.0.1:11434/v1", model="qwen3.8:27b")
+        llm.provider = llm_provider.OLLAMA
+        llm._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        for _ in range(2):
+            data = await llm.json_completion("sys", "user", {"type": "object"})
+            assert data["cards"][0]["headline"] == "Who signs off on the budget?", data
+        assert len(calls) == 3, calls                     # one 501, then no further schema attempts
+        assert "JSON schema" in calls[1]["messages"][0]["content"]
+
+        # Other errors (e.g. out of memory) are still raised, not retried as prompt-only.
+        llm2 = OpenAICompatClient("http://127.0.0.1:11434/v1", model="qwen3.8:27b")
+        llm2._http = httpx.AsyncClient(transport=fake_server("ollama", chat_status=500)[0])
+        try:
+            await llm2.json_completion("sys", "user", {"type": "object"})
+            raise AssertionError("expected LlmError")
+        except llm_provider.LlmError as err:
+            assert err.status == 500 and llm2._structured
+        await llm.aclose(); await llm2.aclose()
+    asyncio.run(run())
+
+
 test_provider_detection_and_model_choice()
 test_llm_failure_reaches_hud()
+test_structured_output_fallback()
 print("llm providers ok")

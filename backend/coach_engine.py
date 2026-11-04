@@ -149,6 +149,12 @@ class TriggerPolicy:
         return trigger
 
 
+def _structured_output_unsupported(err: "llm_provider.LlmError") -> bool:
+    text = str(err).lower()
+    return err.status == 501 or (err.status in (400, 422) and any(
+        k in text for k in ("structured output", "response_format", "json_schema", "grammar")))
+
+
 class OpenAICompatClient:
     """Pooled client for LM Studio / Ollama / llama-server (OpenAI-compatible)."""
 
@@ -159,6 +165,7 @@ class OpenAICompatClient:
         self._model = model
         self._http = httpx.AsyncClient(timeout=timeout_s)
         self._no_reasoning = True   # cards are latency-critical; thinking only adds delay
+        self._structured = True     # JSON-schema constrained output, when the server supports it
         self.provider: str | None = None
 
     async def model_id(self) -> str:
@@ -191,7 +198,8 @@ class OpenAICompatClient:
             res = await self._http.post(f"{self.base_url}/chat/completions", json=payload, **kw)
         if res.status_code >= 400:
             name = llm_provider.provider_name(self.provider or llm_provider.guess_provider(self.base_url))
-            raise llm_provider.LlmError(f"{name} error {res.status_code}: {llm_provider.error_detail(res)}")
+            raise llm_provider.LlmError(f"{name} error {res.status_code}: {llm_provider.error_detail(res)}",
+                                        status=res.status_code)
         return res
 
     async def warmup(self) -> None:
@@ -206,9 +214,23 @@ class OpenAICompatClient:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0.3,
             "max_tokens": max_tokens,
-            "response_format": {"type": "json_schema", "json_schema": {"name": "cards", "schema": schema}},
         }
-        res = await self._chat(payload)
+        res = None
+        if self._structured:
+            try:
+                res = await self._chat({**payload, "response_format": {
+                    "type": "json_schema", "json_schema": {"name": "cards", "schema": schema}}})
+            except llm_provider.LlmError as err:
+                if not _structured_output_unsupported(err):
+                    raise
+                # e.g. Homebrew Ollama with MLX models lacks the grammar library (501): rely on the prompt
+                logger.warning("coach LLM: structured output unsupported, using prompt-only JSON (%s)", err)
+                self._structured = False
+        if res is None:
+            payload["messages"][0]["content"] = (
+                f"{system}\n\nReply with a single JSON object matching this JSON schema, no other text:\n"
+                f"{json.dumps(schema)}")
+            res = await self._chat(payload)
         content = res.json()["choices"][0]["message"].get("content") or ""
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
         match = re.search(r"\{.*\}", content, re.S)
