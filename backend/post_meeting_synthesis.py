@@ -126,6 +126,18 @@ SUMMARY_TEMPLATES = [
                           ("Blockers to escalate", "blockers that need help from outside the team")),
         reroutes="Moments where Me accepted a slip without root cause, owner or new date, or let status stay vague, "
                  "each with a sharper accountability question."),
+    SummaryTemplate(
+        keys=("youtube", "learning", "video"),
+        summary=_sections("the video's core idea in plain words",
+                          ("Key concepts", "each concept, framework or model explained, in one plain sentence"),
+                          ("Examples & evidence", "the examples, data or stories used to support it"),
+                          ("Takeaways", "2-3 lessons most useful for Me's work or growth"),
+                          ("Claims to verify", "strong or surprising claims worth checking")),
+        actions="One bullet per thing to practise or try: - Practice | How or when I'll apply it\n"
+                'Write "- None" if nothing applies.',
+        actions_heading="Apply & practise",
+        reroutes='Usually write: None. Only if Me spoke, moments where Me\'s question or note was vague, each with a '
+                 'sharper question that tests understanding.'),
 ]
 GENERAL_TEMPLATE = SummaryTemplate(
     keys=(),

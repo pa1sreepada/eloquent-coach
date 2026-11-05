@@ -67,6 +67,7 @@ MODE_FOCUS = [
     (("1:1", "feedback"), "Me is the manager. Name specific behavior and impact, ask more than tell, and close on an agreed next step."),
     (("negotiation", "deal"), "Uncover interests and decision criteria before conceding. Trade, never give; anchor on value; don't split the difference; label emotions."),
     (("conflict",), "De-escalate: acknowledge the feeling, restate the other side fairly, name the shared goal, then move to options."),
+    (("youtube", "learning", "video"), "Me is learning from a video, talk or course; the speaker can't hear Me, so never suggest replying to them. Help Me learn: restate the key idea, framework or claim just explained in plain words, ask a question that tests understanding or links it to Me's own work (PREP NOTES), or flag a claim worth checking. Prefer 'question' cards."),
     (("okr", "delivery"), "Accountability: status vs target, root cause of slips, recovery plan, owner and new date, and blockers to escalate."),
 ]
 DEFAULT_FOCUS = "Drive to a decision: options, trade-offs, owner and date."

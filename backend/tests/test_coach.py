@@ -156,6 +156,9 @@ assert "Status vs target:" in summary_prompt("OKR & Delivery Review")
 assert "Offers & concessions:" in summary_prompt("Negotiation & Deal Mode")
 assert "Numbers shared:" in summary_prompt("Board & Investor Pitch")
 assert "Feedback given:" in summary_prompt("1:1 Coaching & Feedback")
+assert "Key concepts:" in summary_prompt("YouTube & Learning Session")
+assert summary_template("YouTube & Learning Session").actions_heading == "Apply & practise"
+assert "can't hear Me" in mode_focus("YouTube & Learning Session")
 assert summary_template("Something custom") is GENERAL_TEMPLATE and "Decisions:" in summary_prompt("")
 fire = summary_template("Fireside Chat & Guest Speaker")
 assert parse_briefing("--- EXECUTIVE SUMMARY ---\nBottom line: x\n--- ACTION ITEMS ---\n- Ask why first | Open each 1:1 with a why",
