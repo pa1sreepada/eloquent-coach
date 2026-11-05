@@ -174,6 +174,18 @@ p {
 .icon-btn:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
 .icon-btn.danger:hover { background: rgba(239, 68, 68, 0.12); color: var(--color-risk); }
 
+/* Formatted executive summary */
+.summary-doc { color: var(--text-primary); font-size: 0.95rem; line-height: 1.6; }
+.summary-doc h3 {
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-tertiary); margin: 1.3rem 0 0.4rem;
+}
+.summary-doc h3:first-child { margin-top: 0; }
+.summary-doc p { margin: 0 0 0.6rem; }
+.summary-doc ul { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.summary-doc li::marker { color: var(--text-tertiary); }
+.summary-doc strong { font-weight: 600; }
+
 /* Editable transcript lines: actions appear on hover or keyboard focus */
 .tx-line {
   display: flex; gap: 0.6rem; padding: 0.35rem 0.5rem; margin: 0 -0.5rem;

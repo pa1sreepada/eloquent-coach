@@ -3,6 +3,7 @@ import { Clock, FileText, RefreshCw, Cpu, Download, Trash2, Copy, Check, Sparkle
 import { CoachCard } from './coachKinds';
 import { useNotesAutosave } from './useNotesAutosave';
 import TranscriptEditor from './TranscriptEditor';
+import { parseSummary, inline, toHtml, toPlain } from './summaryFormat';
 
 const API = 'http://127.0.0.1:8000';
 
@@ -207,9 +208,21 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
     }
   };
 
-  const copySummary = () => {
-    if (!meetingDetails?.summary) return;
-    navigator.clipboard.writeText(`${meetingDetails.summary}\n\n${meetingDetails.strategic_alternatives || ''}`.trim());
+  // Rich text (bold headings, real bullets) for Slack and email, with a plain-text fallback.
+  // Phrasing pivots are personal coaching, so they stay out of what gets shared.
+  const copySummary = async () => {
+    const md = meetingDetails;
+    if (!md?.summary) return;
+    const title = `${md.title || `Session #${md.id}`} · ${new Date(md.start_time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`;
+    const plain = toPlain(md.summary, title);
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([toHtml(md.summary, title)], { type: 'text/html' }),
+        'text/plain': new Blob([plain], { type: 'text/plain' }),
+      })]);
+    } catch {
+      await navigator.clipboard.writeText(plain);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -472,12 +485,14 @@ function SummaryTab({ d, isSynthesizing, busyElsewhere, errorText, onGenerate, o
       {d.summary ? (
         <>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.25rem', marginBottom: '-0.5rem' }}>
-            <button className="icon-btn" onClick={onCopy} title="Copy summary">{copied ? <Check size={16} /> : <Copy size={16} />}</button>
+            <button className="btn btn-outline" onClick={onCopy} title="Copy with headings and bullets, ready to paste into Slack or email" style={{ padding: '0.3rem 0.8rem', fontSize: '0.82rem' }}>
+              {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copied' : 'Copy for Slack / email'}
+            </button>
             <button className="icon-btn" onClick={onGenerate} disabled={busy} title={busyElsewhere ? 'Another summary is being generated' : 'Regenerate'}>
               <RefreshCw size={16} className={isSynthesizing ? 'pulse-animation' : undefined} />
             </button>
           </div>
-          <div style={{ color: 'var(--text-primary)', lineHeight: 1.65, whiteSpace: 'pre-wrap', fontSize: '0.95rem' }}>{d.summary}</div>
+          <FormattedSummary text={d.summary} />
         </>
       ) : !isSynthesizing && (
         <div style={{ padding: '3rem 1.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.9rem' }}>
@@ -508,6 +523,21 @@ function SummaryTab({ d, isSynthesizing, busyElsewhere, errorText, onGenerate, o
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Inline({ text }: { text: string }) {
+  return <>{inline(text).map((g, i) => (g.bold ? <strong key={i}>{g.text}</strong> : <span key={i}>{g.text}</span>))}</>;
+}
+
+function FormattedSummary({ text }: { text: string }) {
+  return (
+    <div className="summary-doc">
+      {parseSummary(text).map((b, i) =>
+        b.kind === 'heading' ? <h3 key={i}>{b.text}</h3>
+          : b.kind === 'para' ? <p key={i}><Inline text={b.text} /></p>
+            : <ul key={i}>{b.items.map((it, j) => <li key={j}><Inline text={it} /></li>)}</ul>)}
     </div>
   );
 }

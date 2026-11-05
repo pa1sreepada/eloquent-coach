@@ -16,7 +16,7 @@ from lm_studio_client import LMStudioClient
 from coach_engine import OpenAICompatClient
 import llm_provider
 from metrics_engine import MetricsEngine
-from post_meeting_synthesis import PostMeetingSynthesis
+from post_meeting_synthesis import PostMeetingSynthesis, format_summary
 from report_generator import ReportGenerator
 import realtime
 
@@ -265,7 +265,7 @@ def get_meeting_details(meeting_id: int, db: Session = Depends(get_db)):
         "prep_notes": meeting.prep_notes,
         "start_time": meeting.start_time.isoformat() if meeting.start_time else None,
         "end_time": meeting.end_time.isoformat() if meeting.end_time else None,
-        "summary": meeting.summary,
+        "summary": format_summary(meeting.summary) if meeting.summary else meeting.summary,
         "transcript_filepath": meeting.transcript_filepath,
         "lps_score": meeting.lps_score,
         "strategic_alternatives": meeting.strategic_alternatives,
@@ -299,7 +299,7 @@ def export_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
     export_content += "\n---\n\n"
     
     export_content += "## Executive Briefing & Synthesis\n"
-    export_content += f"{meeting.summary or 'No summary generated.'}\n\n"
+    export_content += f"{format_summary(meeting.summary) if meeting.summary else 'No summary generated.'}\n\n"
     
     if meeting.strategic_alternatives:
         export_content += "## Strategic Executive Rerouting & Pivots\n"

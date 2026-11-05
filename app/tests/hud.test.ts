@@ -2,6 +2,7 @@ import { deckReducer, initialDeck, type DeckState } from '../src/hud/cardDeck.ts
 import { align, createAligner, paginate } from '../src/hud/scriptAligner.ts'
 import type { CoachCard } from '../src/hud/protocol.ts'
 import assert from 'node:assert/strict'
+import { parseSummary, toHtml, toPlain } from '../src/components/summaryFormat.ts'
 const now = Date.now()
 const c = (id: string, priority: 1|2|3, headline: string, ttl = 75, t = now): CoachCard =>
   ({ id, kind: 'question', headline, body: '', priority, ttl_s: ttl, trigger: 't', created_at_ms: t })
@@ -38,4 +39,12 @@ al.pointer = align(al, 'ARR grew 40% last quarter')
 assert.equal(al.pointer, 10)
 al.pointer = align(al, 'bottom line') ; assert.equal(al.pointer, 10, 'never moves back')
 assert.ok(paginate(script, 8).length >= 2)
+// Summary copy: Markdown subset -> rich HTML (Slack/email) and clean plain text
+const sum = '**Bottom line:** Ship <enterprise> first.\n\n**Action items**\n- **Sarah** — Draft plan (Fri)\n- **Unassigned** — Staffing'
+assert.deepEqual(parseSummary(sum).map(b => b.kind), ['para', 'heading', 'list'])
+assert.equal(toHtml(sum, 'Sync · Tue'),
+  '<p><b>Sync · Tue</b></p><p><b>Bottom line:</b> Ship &lt;enterprise&gt; first.</p><p><b>Action items</b></p>' +
+  '<ul><li><b>Sarah</b> — Draft plan (Fri)</li><li><b>Unassigned</b> — Staffing</li></ul>')
+assert.equal(toPlain(sum, 'Sync · Tue'),
+  'Sync · Tue\n\nBottom line: Ship <enterprise> first.\n\nAction items\n• Sarah — Draft plan (Fri)\n• Unassigned — Staffing')
 console.log('hud tests: all passed')

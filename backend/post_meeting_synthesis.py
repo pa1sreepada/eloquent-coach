@@ -23,8 +23,8 @@ _BRIEFING = """You are a senior executive coach writing the post-meeting briefin
 
 Rules:
 - Use only what is in the input. Never invent decisions, owners, dates, numbers or quotes.
-- Be concise and specific; reuse the meeting's own terms and numbers. Keep the whole briefing under 450 words.
-- Start your reply with the first marker. No planning, preamble, closing remarks or markdown headings.
+- Write for a busy reader skimming in Slack or email: short bullets of at most 20 words, no paragraphs. Reuse the meeting's own terms and numbers. Keep the whole briefing under 300 words.
+- Start your reply with the first marker. No planning, preamble, closing remarks, markdown headings, bold or tables.
 - Output exactly these four section markers, in this order, each on its own line.
 
 --- EXECUTIVE SUMMARY ---
@@ -43,13 +43,13 @@ One line each, numbered, best first, at most 3:
 ORIGIN must be copied word-for-word from a "Me" line or from LEADER QUOTES, and be a substantive moment (a position, answer, request or question of 8+ words), not filler or small talk. ALTERNATIVE must be a complete sentence Me could really have said in that moment, using the meeting's specifics; never placeholders like X or Y. If nothing qualifies, write: None"""
 
 EXECUTIVE_SYNTHESIS_PROMPT = _BRIEFING.format(
-    summary="""Bottom line: <one sentence: the most important outcome, decision or unresolved issue>
+    summary="""Bottom line: <one sentence, max 25 words: the most important outcome, decision or unresolved issue>
 Decisions:
-- <decision> (or "- None recorded")
+- <decision> (or "- None")
 Key points:
 - 2-4 bullets on what mattered and why
 Risks & concerns:
-- <risk> (or "- None raised")""",
+- <risk> (or "- None")""",
     actions="""One bullet per commitment: - Owner | Action | Due
 Use "Unassigned" or "No date" when not stated. Write "- None" if no commitments were made.""",
     reroutes="""Moments where Me sounded hedged, vague, defensive or rambling, or let a decision slip, each with a stronger executive alternative (bottom line first, specific, confident).""",
@@ -124,11 +124,100 @@ def _good_reroute(line: str) -> bool:
     return len(origin.split()) >= 8 and not _PLACEHOLDER.search(parts[1])
 
 
+# ---------------------------------------------------------------- summary formatting
+# Summaries are stored as a small Markdown subset that pastes cleanly into Slack and email:
+#   **Bottom line:** one sentence      (lead line)
+#   **Heading**                        (section heading, own line)
+#   - bullet                           (items; **bold** inline allowed)
+# format_summary() turns whatever the model wrote into that shape and is idempotent, so it is also
+# applied when older summaries are read.
+
+_EMPTY_ITEM = re.compile(r"^(none|none recorded|none raised|n/?a|nothing|no(ne)? (decisions?|risks?|questions?|action items?)( (recorded|raised|made))?)\.?$", re.I)
+_BULLET = re.compile(r"^\s*(?:[-*•–]|\d+[.)])\s+(.*)$")
+_HEADING_MD = re.compile(r"^\s*#{1,6}\s*(.+?)\s*#*\s*$")
+_HEADING_MARKER = re.compile(r"^[\s#*]*-{2,}\s*(.+?)\s*-{2,}[\s*#]*$")
+_HEADING_BOLD = re.compile(r"^\s*\*\*([^*]+?)\*\*\s*:?\s*$")
+_HEADING_LABEL = re.compile(r"^\s*([A-Za-z][\w &/'-]{1,40}):\s*$")
+_LEAD = re.compile(r"^\s*(?:\*\*)?(bottom line|tl;?dr|summary|core message)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$", re.I)
+_ITEM_LABEL = re.compile(r"^\s*(?:\*\*)?(owner|who|action(?: item)?|task|due(?: date)?|deadline|by when|target(?: timeline)?|timeline|"
+                         r"principle|what the guest shared|how i'?ll apply it)(?:\*\*)?\s*:\s*(?:\*\*)?", re.I)
+_DROP_HEADINGS = {"executive summary", "summary", "executive briefing"}
+
+
+def _heading_text(name: str) -> str:
+    name = re.sub(r"[*_`]+", "", name).strip().rstrip(":").strip()
+    return name[:1].upper() + name[1:].lower() if name.isupper() or name[:1].islower() else name
+
+
+def _format_item(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if "|" not in text:
+        return text
+    parts = [_ITEM_LABEL.sub("", p).strip().strip("*").strip() for p in text.split("|")]
+    parts = [p for p in parts if p]
+    if len(parts) < 2:
+        return parts[0] if parts else ""
+    head, rest = f"**{parts[0]}**", parts[1:]
+    if len(rest) == 2 and len(rest[1].split()) <= 4:   # Owner | Action | Due
+        due = rest[1]
+        return f"{head} — {rest[0]}" + ("" if due.lower() in ("no date", "none", "n/a") else f" ({due})")
+    return " — ".join([head] + rest)
+
+
+def format_summary(text: str) -> str:
+    """Normalise a briefing into headings + bullets; drops empty sections and "None" items."""
+    if not text or not text.strip():
+        return text or ""
+    lead: list[str] = []
+    sections: list[tuple[str | None, list[str]]] = [(None, [])]
+    for raw_line in text.strip().splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        m = _LEAD.match(line)
+        if m and not _BULLET.match(line):
+            label = "Bottom line" if m.group(1).lower() != "core message" else "Core message"
+            lead.append(f"**{label}:** {m.group(2).strip().strip('*').strip()}")
+            continue
+        h = None
+        for rx in (_HEADING_MARKER, _HEADING_MD, _HEADING_BOLD, _HEADING_LABEL):
+            mm = rx.match(line)
+            if mm:
+                h = _heading_text(mm.group(1))
+                break
+        if h is not None:
+            if h.lower() not in _DROP_HEADINGS:
+                sections.append((h, []))
+            continue
+        b = _BULLET.match(line)
+        if b:
+            item = _format_item(b.group(1))
+            if item and not _EMPTY_ITEM.match(item.strip("* ")):
+                sections[-1][1].append(f"- {item}")
+        elif not _EMPTY_ITEM.match(line.strip()):
+            sections[-1][1].append(re.sub(r"\s+", " ", line).strip())
+    sections = [(h, body) for h, body in sections if body]
+    # Commitments are what readers act on: put them right after the decisions.
+    names = [(h or "").lower() for h, _ in sections]
+    if "action items" in names:
+        item = sections.pop(names.index("action items"))
+        names.remove("action items")
+        at = names.index("decisions") + 1 if "decisions" in names else (1 if sections and sections[0][0] is None else 0)
+        sections.insert(at, item)
+    blocks = ["\n".join(lead)] if lead else []
+    for h, body in sections:
+        paragraphs = [ln for ln in body if not ln.startswith("- ")]
+        bullets = [ln for ln in body if ln.startswith("- ")]
+        parts = ([f"**{h}**"] if h else []) + (["\n\n".join(paragraphs)] if paragraphs else []) + (["\n".join(bullets)] if bullets else [])
+        blocks.append("\n".join(parts) if h else "\n\n".join(parts))
+    return "\n\n".join(b for b in blocks if b).strip() or text.strip()
+
+
 def parse_briefing(raw: str) -> tuple[str, str]:
     """Split LLM output into (summary shown in Reports, reroute lines). Tolerates markdown around markers."""
     marks = list(_MARKER.finditer(raw))
     if not marks:
-        return raw.strip(), ""
+        return format_summary(raw.strip()), ""
     sections: dict[str, str] = {}
     for m, nxt in zip(marks, marks[1:] + [None]):
         name = (m.group(1) or m.group(2)).upper()
@@ -140,10 +229,10 @@ def parse_briefing(raw: str) -> tuple[str, str]:
     for name in SECTIONS[:3]:
         body = sections.get(name, "")
         if body:
-            blocks.append(body if name == "EXECUTIVE SUMMARY" else f"{name.title()}:\n{body}")
+            blocks.append(body if name == "EXECUTIVE SUMMARY" else f"{name.capitalize()}:\n{body}")
     reroutes = "\n".join(ln.strip() for ln in sections.get("STRATEGIC REROUTES", "").splitlines()
                          if _good_reroute(ln))
-    return "\n\n".join(blocks) or raw.strip(), reroutes
+    return format_summary("\n\n".join(blocks) or raw.strip()), reroutes
 
 
 class PostMeetingSynthesis:

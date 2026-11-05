@@ -120,14 +120,35 @@ Bottom line: ship enterprise first.
 1. ORIGIN: "I think maybe we could possibly look at shipping it next quarter" | ALTERNATIVE: "We will ship it next quarter" | RATIONALE: Commit.
 """
 summary, reroutes = parse_briefing(raw)
-assert summary.startswith("Bottom line") and "Action Items:\n- Sarah" in summary and "Open Questions:" in summary, summary
+assert summary.startswith("**Bottom line:** ship enterprise first."), summary
+assert "**Action items**\n- **Sarah** — Migration plan (Friday)" in summary and "**Open questions**\n- Who covers" in summary, summary
 assert reroutes.startswith("1. ORIGIN") and "---" not in summary
 assert parse_briefing("--- EXECUTIVE SUMMARY ---\nx\n--- STRATEGIC REROUTES ---\nNone")[1] == ""
 assert parse_briefing("free text")[0] == "free text"
-assert parse_briefing("x<channel|>--- EXECUTIVE SUMMARY ---\nBottom line: y")[0] == "Bottom line: y"
+assert parse_briefing("x<channel|>--- EXECUTIVE SUMMARY ---\nBottom line: y")[0] == "**Bottom line:** y"
 from lm_studio_client import strip_reasoning
 assert strip_reasoning("plan...<channel|>--- EXECUTIVE SUMMARY ---") == "--- EXECUTIVE SUMMARY ---"
-assert parse_briefing("Bottom line: x\n--- ACTION ITEMS ---\n- None")[0].startswith("Bottom line: x")
+assert parse_briefing("Bottom line: x\n--- ACTION ITEMS ---\n- None")[0] == "**Bottom line:** x"   # empty section dropped
+
+# Slack/email-ready shape: action items follow decisions, "None" sections vanish, labels and pipes are cleaned,
+# and formatting is idempotent (it is re-applied when stored summaries are read).
+from post_meeting_synthesis import format_summary
+messy = """Bottom line: Ship enterprise first.
+Key points:
+* Support load is the main constraint
+Decisions:
+1. Launch moves to May 12
+Risks & concerns:
+- None raised
+--- ACTION ITEMS ---
+- **Owner**: Sarah | **Action Item**: Draft migration plan | **Target Timeline**: Friday
+- Unassigned | Confirm staffing | No date"""
+tidy = format_summary(messy)
+assert tidy == ("**Bottom line:** Ship enterprise first.\n\n**Key points**\n- Support load is the main constraint\n\n"
+                "**Decisions**\n- Launch moves to May 12\n\n**Action items**\n- **Sarah** — Draft migration plan (Friday)\n"
+                "- **Unassigned** — Confirm staffing"), tidy
+assert format_summary(tidy) == tidy
+assert format_summary("Failed to generate the summary: LLM offline") == "Failed to generate the summary: LLM offline"
 parts = _chunks("\n".join(f"Me: line {i}" for i in range(100)), 120)
 assert all(len(p) <= 120 for p in parts) and "\n".join(parts).count("line") == 100
 print("prompts ok")
