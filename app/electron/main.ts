@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename)
 // │ │
 // │ ├─┬ dist-electron
 // │ │ ├── main.js
-// │ │ └── preload.js
+// │ │ └── preload.cjs
 // │
 const DIST = path.join(__dirname, '../dist')
 const VITE_PUBLIC = app.isPackaged ? DIST : path.join(DIST, '../public')
@@ -78,7 +78,7 @@ function createWindow() {
     title: APP_NAME,
     icon: path.join(VITE_PUBLIC, 'icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
     },
     width: 1200,
     height: 800,
@@ -136,6 +136,6 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   // Packaged builds take the dock icon from the .icns; `npm run dev` would otherwise show Electron's.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(path.join(VITE_PUBLIC, 'icon.png'))
-  registerHudIpc(path.join(__dirname, 'preload.js'), VITE_DEV_SERVER_URL, DIST)
+  registerHudIpc(path.join(__dirname, 'preload.cjs'), VITE_DEV_SERVER_URL, DIST)
   createWindow()
 })

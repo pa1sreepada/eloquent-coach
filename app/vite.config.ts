@@ -16,6 +16,18 @@ export default defineConfig({
         onstart(options) {
           options.reload()
         },
+        // Electron sandboxes preloads, and sandboxed preloads can't use ES `import`; without CommonJS
+        // `window.eloquent` is never defined and the HUD button stays disabled.
+        // (package.json is "type": "module", so the plugin would otherwise emit ESM).
+        vite: {
+          build: {
+            lib: false,
+            rolldownOptions: {
+              input: 'electron/preload.ts',
+              output: { format: 'cjs', entryFileNames: 'preload.cjs' },
+            },
+          },
+        },
       },
     ]),
     renderer(),
