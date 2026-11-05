@@ -1,4 +1,4 @@
-"""Transcript editing endpoints, against a throwaway SQLite database (never the real one)."""
+"""Meeting edit endpoints (type, title, transcript lines), against a throwaway SQLite database (never the real one)."""
 import datetime, os, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.chdir(tempfile.mkdtemp())   # database.py uses a cwd-relative path; keep any stray file out of backend/
@@ -56,4 +56,12 @@ assert client.post("/meetings/9999/transcripts/delete", json={"ids": [ids[3]]}).
 detail = client.get(f"/meetings/{m_id}").json()
 assert [(t["speaker"], t["text"]) for t in detail["transcripts"]] == [("Me", "Corrected words"), ("Participant", "line 3")]
 assert client.get(f"/meetings/{other_id}").json()["transcripts"][0]["text"] == "keep me"
-print("transcript api ok")
+# Change the meeting type (decides the summary sections) without touching the title.
+r = client.patch(f"/meetings/{m_id}", json={"mode": "  OKR & Delivery   Review "})
+assert r.status_code == 200 and r.json()["mode"] == "OKR & Delivery Review" and r.json()["title"] == "Sync", r.json()
+assert client.get(f"/meetings/{m_id}").json()["mode"] == "OKR & Delivery Review"
+assert client.patch(f"/meetings/{m_id}", json={"mode": " "}).status_code == 400
+assert client.patch(f"/meetings/{m_id}", json={}).status_code == 400
+r = client.patch(f"/meetings/{m_id}", json={"title": "Weekly sync"})
+assert r.json()["title"] == "Weekly sync" and r.json()["mode"] == "OKR & Delivery Review", r.json()
+print("meeting api ok")

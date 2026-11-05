@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Play, ChevronDown, ChevronRight } from 'lucide-react';
+import { MODES } from './meetingModes';
 
 interface DashboardStats {
   sessions: number;
@@ -10,16 +11,6 @@ interface DashboardStats {
   question_pct: number | null;
   fillers_per_session: number | null;
 }
-
-const MODES: [string, string][] = [
-  ['General Executive', 'General'],
-  ['Board & Investor Pitch', 'Board & Investor'],
-  ['1:1 Coaching & Feedback', '1:1 & Feedback'],
-  ['Negotiation & Deal Mode', 'Negotiation'],
-  ['Conflict Resolution', 'Conflict'],
-  ['OKR & Delivery Review', 'Delivery Review'],
-  ['Fireside Chat & Guest Speaker', 'Fireside / Host'],
-];
 
 export default function DashboardView({ onStartMeeting, onViewHistory }: { onStartMeeting: (mode: string, agenda: string, prepNotes?: string) => void, onViewHistory: () => void }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);

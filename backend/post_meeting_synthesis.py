@@ -6,8 +6,8 @@ in the middle of a meeting is dropped.
 """
 import logging
 import re
+from dataclasses import dataclass
 
-from coach_engine import mode_focus
 from database import Insight, Meeting, SessionLocal, Transcript
 from lm_studio_client import LMStudioClient
 
@@ -42,31 +42,112 @@ One line each, numbered, best first, at most 3:
 1. ORIGIN: "<exact words Me said>" | ALTERNATIVE: "<what Me could have said instead>" | RATIONALE: <why it works, max 20 words>
 ORIGIN must be copied word-for-word from a "Me" line or from LEADER QUOTES, and be a substantive moment (a position, answer, request or question of 8+ words), not filler or small talk. ALTERNATIVE must be a complete sentence Me could really have said in that moment, using the meeting's specifics; never placeholders like X or Y. If nothing qualifies, write: None"""
 
-EXECUTIVE_SYNTHESIS_PROMPT = _BRIEFING.format(
-    summary="""Bottom line: <one sentence, max 25 words: the most important outcome, decision or unresolved issue>
-Decisions:
-- <decision> (or "- None")
-Key points:
-- 2-4 bullets on what mattered and why
-Risks & concerns:
-- <risk> (or "- None")""",
-    actions="""One bullet per commitment: - Owner | Action | Due
-Use "Unassigned" or "No date" when not stated. Write "- None" if no commitments were made.""",
-    reroutes="""Moments where Me sounded hedged, vague, defensive or rambling, or let a decision slip, each with a stronger executive alternative (bottom line first, specific, confident).""",
+_GENERAL_REROUTES = ("Moments where Me sounded hedged, vague, defensive or rambling, or let a decision slip, each with a "
+                     "stronger executive alternative (bottom line first, specific, confident).")
+_OWNER_ACTIONS = ("One bullet per commitment: - Owner | Action | Due\n"
+                  'Use "Unassigned" or "No date" when not stated. Write "- None" if no commitments were made.')
+
+
+@dataclass(frozen=True)
+class SummaryTemplate:
+    """What a briefing contains for one meeting type. `summary` lists the sections inside EXECUTIVE SUMMARY."""
+    keys: tuple[str, ...]
+    summary: str
+    actions: str = _OWNER_ACTIONS
+    actions_heading: str = "Action items"
+    reroutes: str = _GENERAL_REROUTES
+
+
+def _sections(bottom_line: str, *sections: tuple[str, str]) -> str:
+    lines = [f"Bottom line: <one sentence, max 25 words: {bottom_line}>"]
+    for name, what in sections:
+        lines += [f"{name}:", f"- {what} (or \"- None\")"]
+    return "\n".join(lines)
+
+
+# Matched by keyword against the meeting type (same keywords as the live coaching lens).
+SUMMARY_TEMPLATES = [
+    SummaryTemplate(
+        keys=("fireside", "guest"),
+        summary=_sections("the guest's core message",
+                          ("Philosophy", "2-3 bullets on the guest's leadership philosophy"),
+                          ("Inflection points", "the pivotal stories or decisions the guest shared"),
+                          ("Takeaways", "2-3 transferable lessons")),
+        actions="One bullet per principle worth applying: - Principle | How I'll apply it\n"
+                'Write "- None" if nothing applies.',
+        actions_heading="Lessons to apply",
+        reroutes="Moments where Me (the host) asked a surface-level or closed question, interrupted, or moved on before "
+                 "the guest's story reached the decision or lesson, each with a sharper follow-up question."),
+    SummaryTemplate(
+        keys=("board", "investor"),
+        summary=_sections("the board's or investors' overall read and the most important outcome",
+                          ("Numbers shared", "each metric, target or financial figure stated, with its context"),
+                          ("Board questions & concerns", "what they probed or pushed back on, and how Me answered"),
+                          ("Decisions & approvals", "what was approved, rejected or deferred"),
+                          ("Risks", "risks raised or exposed")),
+        actions="One bullet per follow-up owed (to the board/investors or by them): - Owner | Action | Due\n"
+                'Use "Unassigned" or "No date" when not stated. Write "- None" if there are none.',
+        reroutes="Moments where Me buried the answer, gave no number, hedged under diligence or over-explained, each "
+                 "with a sharper bottom-line-first answer using the meeting's numbers."),
+    SummaryTemplate(
+        keys=("1:1", "feedback"),
+        summary=_sections("the main message of this conversation and where it landed",
+                          ("Feedback given", "specific behavior -> its impact, as discussed"),
+                          ("Their perspective", "what the other person said about their work, goals or concerns"),
+                          ("Agreements & support", "what was agreed, including support Me offered")),
+        actions="One bullet per next step for either person: - Owner | Action | Due\n"
+                'Use "Unassigned" or "No date" when not stated. Write "- None" if there are none.',
+        reroutes="Moments where Me was vague about behavior or impact, told instead of asked, softened feedback until "
+                 "it lost meaning, or ended without a next step, each with a clearer, kinder alternative."),
+    SummaryTemplate(
+        keys=("negotiation", "deal"),
+        summary=_sections("where the deal stands",
+                          ("Their interests & priorities", "what the other side needs and why"),
+                          ("Offers & concessions", "each offer or concession, by whom, and what was traded for it"),
+                          ("Agreed terms", "terms both sides accepted"),
+                          ("Sticking points", "unresolved issues and how far apart the sides are")),
+        reroutes="Moments where Me conceded without trading, split the difference, revealed a limit, or argued "
+                 "position instead of interest, each with a stronger negotiating move."),
+    SummaryTemplate(
+        keys=("conflict",),
+        summary=_sections("whether the disagreement moved toward resolution, and on what",
+                          ("Positions & underlying interests", "each side's position and the need behind it"),
+                          ("Common ground", "shared goals or points of agreement"),
+                          ("Agreements reached", "what was resolved"),
+                          ("Remaining tension", "what is still unresolved")),
+        reroutes="Moments where Me escalated, dismissed a feeling, argued instead of restating the other side, or "
+                 "skipped to solutions too early, each with a de-escalating alternative."),
+    SummaryTemplate(
+        keys=("okr", "delivery"),
+        summary=_sections("overall status: on track, at risk or off track, and why",
+                          ("Status vs target", "each objective or project: current state vs target, with numbers"),
+                          ("Slips & root causes", "what slipped and why"),
+                          ("Recovery plans", "the fix, owner and new date for each slip"),
+                          ("Blockers to escalate", "blockers that need help from outside the team")),
+        reroutes="Moments where Me accepted a slip without root cause, owner or new date, or let status stay vague, "
+                 "each with a sharper accountability question."),
+]
+GENERAL_TEMPLATE = SummaryTemplate(
+    keys=(),
+    summary=_sections("the most important outcome, decision or unresolved issue",
+                      ("Decisions", "decision"),
+                      ("Key points", "2-4 bullets on what mattered and why"),
+                      ("Risks & concerns", "risk")),
 )
 
-FIRESIDE_SYNTHESIS_PROMPT = _BRIEFING.format(
-    summary="""Bottom line: <one sentence: the guest's core message>
-Philosophy:
-- 2-3 bullets on the guest's leadership philosophy
-Inflection points:
-- the pivotal stories or decisions the guest shared
-Takeaways:
-- 2-3 transferable lessons""",
-    actions="""One bullet per principle worth applying: - Principle | What the guest shared | How I'll apply it
-Write "- None" if nothing applies.""",
-    reroutes="""Moments where Me (the host) asked a surface-level or closed question, interrupted, or moved on before the guest's story reached the decision or lesson, each with a sharper follow-up question.""",
-)
+
+def summary_template(mode: str) -> SummaryTemplate:
+    m = (mode or "").lower()
+    return next((t for t in SUMMARY_TEMPLATES if any(k in m for k in t.keys)), GENERAL_TEMPLATE)
+
+
+def summary_prompt(mode: str) -> str:
+    t = summary_template(mode)
+    return _BRIEFING.format(summary=t.summary, actions=t.actions, reroutes=t.reroutes)
+
+
+EXECUTIVE_SYNTHESIS_PROMPT = summary_prompt("General Executive")
+FIRESIDE_SYNTHESIS_PROMPT = summary_prompt("Fireside Chat & Guest Speaker")
 
 MAX_LEADER_NOTES_CHARS = 3000
 
@@ -92,11 +173,6 @@ Start directly with "DECISIONS:". Write "None" under empty headings. Short bulle
 _NAMES = "|".join(SECTIONS)
 _MARKER = re.compile(rf"[#*]*[ \t]*-{{2,}}[ \t]*({_NAMES})[ \t]*-{{2,}}[ \t*#]*"
                      rf"|^[ \t#*>]*({_NAMES})[ \t*:]*$", re.I | re.M)
-
-
-def _is_fireside(mode: str) -> bool:
-    m = (mode or "").lower()
-    return "fireside" in m or "guest" in m
 
 
 def _chunks(text: str, max_chars: int) -> list[str]:
@@ -213,7 +289,7 @@ def format_summary(text: str) -> str:
     return "\n\n".join(b for b in blocks if b).strip() or text.strip()
 
 
-def parse_briefing(raw: str) -> tuple[str, str]:
+def parse_briefing(raw: str, actions_heading: str = "Action items") -> tuple[str, str]:
     """Split LLM output into (summary shown in Reports, reroute lines). Tolerates markdown around markers."""
     marks = list(_MARKER.finditer(raw))
     if not marks:
@@ -229,7 +305,8 @@ def parse_briefing(raw: str) -> tuple[str, str]:
     for name in SECTIONS[:3]:
         body = sections.get(name, "")
         if body:
-            blocks.append(body if name == "EXECUTIVE SUMMARY" else f"{name.capitalize()}:\n{body}")
+            heading = actions_heading if name == "ACTION ITEMS" else name.capitalize()
+            blocks.append(body if name == "EXECUTIVE SUMMARY" else f"{heading}:\n{body}")
     reroutes = "\n".join(ln.strip() for ln in sections.get("STRATEGIC REROUTES", "").splitlines()
                          if _good_reroute(ln))
     return format_summary("\n\n".join(blocks) or raw.strip()), reroutes
@@ -280,7 +357,7 @@ class PostMeetingSynthesis:
                 i.text for i in db.query(Insight).filter(Insight.meeting_id == meeting_id,
                                                          Insight.insight_type == "question")))[:10]
 
-            header = [f"MODE: {mode}\nLENS: {mode_focus(mode)}"]
+            header = [f"MEETING TYPE: {mode}"]
             if meeting.agenda:
                 header.append(f"AGENDA: {meeting.agenda}")
             if live_qs:
@@ -298,13 +375,13 @@ class PostMeetingSynthesis:
             logger.info("synthesis meeting %s: %d chars, ctx %d tok, %d condense round(s)",
                         meeting_id, len(transcript), ctx, rounds)
 
-            system = FIRESIDE_SYNTHESIS_PROMPT if _is_fireside(mode) else EXECUTIVE_SYNTHESIS_PROMPT
-            raw = await self.lm_client.complete(system, "\n\n".join(header + [f"{label}\n{body}"]),
+            template = summary_template(mode)
+            raw = await self.lm_client.complete(summary_prompt(mode), "\n\n".join(header + [f"{label}\n{body}"]),
                                                 max_tokens=SYNTH_OUTPUT_TOKENS, temperature=0.3)
             if not raw:
                 return f"Failed to generate synthesis from LLM. {self.lm_client.last_error or ''}".strip()
 
-            meeting.summary, meeting.strategic_alternatives = parse_briefing(raw)
+            meeting.summary, meeting.strategic_alternatives = parse_briefing(raw, template.actions_heading)
             db.commit()
             return raw
         except Exception as e:  # noqa: BLE001

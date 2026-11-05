@@ -298,3 +298,11 @@ p {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-tertiary);
 }
+
+/* Meeting type picker inline in the Meeting History header */
+.type-select {
+  background: transparent; color: inherit; font: inherit; border: 1px solid transparent; border-radius: 6px;
+  padding: 0.05rem 0.2rem; cursor: pointer;
+}
+.type-select:hover:not(:disabled), .type-select:focus-visible { border-color: var(--border-color); color: var(--text-secondary); }
+.type-select option { background: var(--bg-color); color: var(--text-primary); }

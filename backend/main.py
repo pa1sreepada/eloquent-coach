@@ -351,10 +351,12 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
 
 
 MAX_TITLE_CHARS = 120
+MAX_MODE_CHARS = 80
 
 
-class TitleUpdate(BaseModel):
-    title: str
+class MeetingUpdate(BaseModel):
+    title: str | None = None
+    mode: str | None = None   # meeting type; decides the summary sections next time it's generated
 
 
 def _title_filename(title: str) -> str:
@@ -364,16 +366,30 @@ def _title_filename(title: str) -> str:
 
 
 @app.patch("/meetings/{meeting_id}")
-def rename_meeting(meeting_id: int, body: TitleUpdate, db: Session = Depends(get_db)):
-    """Rename a meeting. Everything else links by id; a legacy transcript file is renamed to match."""
-    title = re.sub(r"\s+", " ", body.title).strip()
-    if not title:
-        raise HTTPException(400, "Title can't be empty.")
-    if len(title) > MAX_TITLE_CHARS:
-        raise HTTPException(400, f"Title must be {MAX_TITLE_CHARS} characters or fewer.")
+def update_meeting(meeting_id: int, body: MeetingUpdate, db: Session = Depends(get_db)):
+    """Rename a meeting and/or change its type. Everything else links by id; a legacy transcript file is
+    renamed to match the title."""
+    if body.title is None and body.mode is None:
+        raise HTTPException(400, "Nothing to update.")
+    title = mode = None
+    if body.title is not None:
+        title = re.sub(r"\s+", " ", body.title).strip()
+        if not title:
+            raise HTTPException(400, "Title can't be empty.")
+        if len(title) > MAX_TITLE_CHARS:
+            raise HTTPException(400, f"Title must be {MAX_TITLE_CHARS} characters or fewer.")
+    if body.mode is not None:
+        mode = re.sub(r"\s+", " ", body.mode).strip()
+        if not mode or len(mode) > MAX_MODE_CHARS:
+            raise HTTPException(400, f"Meeting type must be 1-{MAX_MODE_CHARS} characters.")
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(404, "Meeting not found")
+    if mode is not None:
+        meeting.mode = mode
+    if title is None:
+        db.commit()
+        return {"status": "updated", "meeting_id": meeting_id, "title": meeting.title, "mode": meeting.mode}
 
     path = meeting.transcript_filepath
     if path and os.path.realpath(path).startswith(TRANSCRIPTS_DIR + os.sep) and os.path.isfile(path):
@@ -390,7 +406,7 @@ def rename_meeting(meeting_id: int, body: TitleUpdate, db: Session = Depends(get
 
     meeting.title = title
     db.commit()
-    return {"status": "renamed", "meeting_id": meeting_id, "title": title}
+    return {"status": "updated", "meeting_id": meeting_id, "title": title, "mode": meeting.mode}
 
 
 SPEAKERS = ("Me", "Participant")

@@ -4,6 +4,7 @@ import { CoachCard } from './coachKinds';
 import { useNotesAutosave } from './useNotesAutosave';
 import TranscriptEditor from './TranscriptEditor';
 import { parseSummary, inline, toHtml, toPlain } from './summaryFormat';
+import { MODES } from './meetingModes';
 
 const API = 'http://127.0.0.1:8000';
 
@@ -61,6 +62,8 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [selectedMeetingId, setSelectedMeetingId] = useState<number | null>(initialMeetingId || null);
   const [meetingDetails, setMeetingDetails] = useState<MeetingDetails | null>(null);
+  const [typeChangedId, setTypeChangedId] = useState<number | null>(null);
+  const [typeError, setTypeError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('summary');
 
   const [isLoadingMeetings, setIsLoadingMeetings] = useState(true);
@@ -143,6 +146,7 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
         if (typeof data.summary === 'string' && /^(Failed to generate|Error generating|No transcript|Meeting not found)/.test(data.summary)) {
           fail(data.summary);
         } else {
+          setTypeChangedId(t => (t === id ? null : t));
           await fetchMeetingDetails(id, true);
           await fetchMeetings();
         }
@@ -183,6 +187,22 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
     if (!res.ok) throw new Error(data.detail || 'Could not rename this meeting.');
     setMeetings(ms => ms.map(m => (m.id === id ? { ...m, title: data.title } : m)));
     setMeetingDetails(md => (md && md.id === id ? { ...md, title: data.title } : md));
+  };
+
+  const changeMeetingType = async (id: number, mode: string) => {
+    setTypeError(null);
+    try {
+      const res = await fetch(`${API}/meetings/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Could not change the meeting type.');
+      setMeetings(ms => ms.map(m => (m.id === id ? { ...m, mode: data.mode } : m)));
+      setMeetingDetails(md => (md && md.id === id ? { ...md, mode: data.mode } : md));
+      setTypeChangedId(id);
+    } catch (err) {
+      setTypeError(err instanceof Error ? err.message : 'Could not change the meeting type.');
+    }
   };
 
   const handleExportMarkdown = async () => {
@@ -336,8 +356,20 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                   <EditableTitle key={d.id} value={d.title || `Session #${d.id}`} onSave={t => renameMeeting(d.id, t)} />
                   <div style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
                     {new Date(d.start_time).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    {' · '}{formatDuration(d.start_time, d.end_time)}{' · '}{d.mode}
+                    {' · '}{formatDuration(d.start_time, d.end_time)}{' · '}
+                    <select className="type-select" value={d.mode || 'General Executive'} disabled={isSynthesizing}
+                      title="Meeting type: decides which sections the summary uses"
+                      onChange={e => changeMeetingType(d.id, e.target.value)}>
+                      {!MODES.some(([v]) => v === (d.mode || 'General Executive')) && <option value={d.mode}>{d.mode}</option>}
+                      {MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
                   </div>
+                  {typeError && <div style={{ color: 'var(--accent-red, #ef4444)', fontSize: '0.8rem', marginTop: '0.3rem' }}>{typeError}</div>}
+                  {typeChangedId === d.id && d.summary && !isSynthesizing && (
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.3rem' }}>
+                      Meeting type changed. Regenerate the summary to use the new sections.
+                    </div>
+                  )}
                   {d.agenda && <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginTop: '0.4rem' }}>Goal: {d.agenda}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
