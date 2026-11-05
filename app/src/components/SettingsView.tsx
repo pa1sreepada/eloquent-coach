@@ -8,6 +8,7 @@ interface Settings extends AsrSettings {
   llm_api_url: string;
   llm_model: string;
   llm_thinking: 'true' | 'false';
+  llm_streaming: 'true' | 'false';
   coach_instructions: string;
   filler_words: string;
   custom_jargon: string;
@@ -18,6 +19,7 @@ export default function SettingsView() {
     llm_api_url: '',
     llm_model: '',
     llm_thinking: 'false',
+    llm_streaming: 'true',
     coach_instructions: '',
     asr_profile: 'auto',
     asr_backend: 'auto',
@@ -233,6 +235,22 @@ export default function SettingsView() {
               Off (recommended): reasoning models such as Qwen 3 and Gemma 4 answer directly, which keeps live cards fast.
               On: the model thinks before answering. Summaries may improve, but live cards arrive seconds later.
               Sent as <code>think</code> to Ollama and <code>reasoning_effort</code> to LM Studio. Applies to the next meeting or summary.
+            </small>
+          </div>
+
+          <div style={{ marginTop: '1.5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={settings.llm_streaming !== 'false'}
+                onChange={e => setSettings(prev => ({ ...prev, llm_streaming: e.target.checked ? 'true' : 'false' }))}
+              />
+              Stream live coaching cards
+            </label>
+            <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
+              On (recommended): each card's headline appears on the HUD as soon as the model writes it, and the details follow.
+              This saves seconds with larger models. If your server doesn't support streaming, the app falls back automatically.
+              Applies to the next meeting.
             </small>
           </div>
 

@@ -12,6 +12,16 @@ assert.equal(s.active?.id, 'a')
 s = deckReducer(s, { type: 'card', card: c('b', 1, 'Counter capacity concern with contractor budget') })
 assert.equal(s.active?.id, 'b', 'p1 preempts'); assert.equal(s.queue[0].id, 'a')
 s = deckReducer(s, { type: 'card', card: c('b', 1, 'dup') }); assert.equal(s.queue.length, 1, 'dedupe')
+// Streamed card: headline first, body fills in place (active or queued), unknown ids are ignored
+{
+  let t = deckReducer(initialDeck, { type: 'card', card: { ...c('h', 2, 'Who owns QA?'), partial: true } })
+  t = deckReducer(t, { type: 'card', card: { ...c('q', 3, 'Queued one'), partial: true } })
+  t = deckReducer(t, { type: 'card_update', card: { ...c('h', 2, 'Who owns QA?'), body: '40 open bugs' } })
+  assert.equal(t.active?.body, '40 open bugs'); assert.equal(t.active?.partial, false)
+  t = deckReducer(t, { type: 'card_update', card: { ...c('q', 3, 'Queued one'), body: 'later' } })
+  assert.equal(t.queue[0].body, 'later')
+  assert.equal(deckReducer(t, { type: 'card_update', card: c('zz', 1, 'gone') }), t)
+}
 // I speak the card → pinned + used; a new p1 must not preempt while pinned
 s = deckReducer(s, { type: 'speech', speaker: 'Me', text: 'we could counter the capacity concern with contractor', final: false })
 assert.ok(s.pinned && s.used.includes('b'))

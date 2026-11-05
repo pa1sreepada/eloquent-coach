@@ -46,6 +46,7 @@ def init_default_settings(db: Session):
         "llm_api_url": "http://127.0.0.1:1234/v1",
         "llm_model": "",
         "llm_thinking": "false",
+        "llm_streaming": "true",
         "coach_instructions": "",
         "asr_profile": "auto",
         "asr_backend": "auto",
@@ -82,6 +83,7 @@ class SettingsUpdate(BaseModel):
     llm_api_url: str
     llm_model: str = ""
     llm_thinking: str = "false"
+    llm_streaming: str = "true"
     coach_instructions: str = ""
     asr_profile: str = "auto"
     asr_backend: str = "auto"

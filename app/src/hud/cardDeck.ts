@@ -14,6 +14,7 @@ export interface DeckState {
 
 export type DeckAction =
   | { type: 'card'; card: CoachCard }
+  | { type: 'card_update'; card: CoachCard }   // body arrived for a card shown headline-first
   | { type: 'speech'; speaker: Speaker; text: string; final: boolean }
   | { type: 'silence'; speaker: Speaker }
   | { type: 'tick'; now: number }
@@ -57,6 +58,11 @@ export function deckReducer(s: DeckState, a: DeckAction): DeckState {
       }
       const queue = [...s.queue, a.card].sort(byPriority).slice(0, MAX_QUEUE)
       return promote({ ...s, queue })
+    }
+    case 'card_update': {
+      const fill = (c: CoachCard) => (c.id === a.card.id ? { ...c, body: a.card.body, partial: false } : c)
+      if (s.active?.id === a.card.id) return { ...s, active: fill(s.active) }
+      return s.queue.some(c => c.id === a.card.id) ? { ...s, queue: s.queue.map(fill) } : s
     }
     case 'speech': {
       const next = { ...s, speaking: a.speaker }

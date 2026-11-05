@@ -164,10 +164,11 @@ class OpenAICompatClient:
     THINKING_TIMEOUT_S = 60.0  # reasoning adds hundreds of tokens before the card
 
     def __init__(self, base_url: str, model: str | None = None, timeout_s: float = 20.0,
-                 thinking: bool = False):
+                 thinking: bool = False, stream: bool = False):
         self.base_url = base_url.rstrip("/")
         self._model = model
         self.thinking = thinking   # off by default: cards are latency-critical
+        self.stream = stream       # stream tokens so a card's headline can show before its body is written
         self._http = httpx.AsyncClient(timeout=max(timeout_s, self.THINKING_TIMEOUT_S) if thinking else timeout_s)
         self._reasoning_fields_ok = True   # dropped if the server rejects them
         self._structured = True     # JSON-schema constrained output, when the server supports it
@@ -192,6 +193,10 @@ class OpenAICompatClient:
             logger.info("coach LLM: %s model %s", llm_provider.provider_name(self.provider), picked)
         return self._model
 
+    def _error(self, status: int, detail: str) -> llm_provider.LlmError:
+        name = llm_provider.provider_name(self.provider or llm_provider.guess_provider(self.base_url))
+        return llm_provider.LlmError(f"{name} error {status}: {detail}", status=status)
+
     async def _chat(self, payload: dict, timeout: float | None = None) -> httpx.Response:
         kw = {"timeout": timeout} if timeout else {}
         fields = llm_provider.reasoning_fields(self.provider, self.thinking) if self._reasoning_fields_ok else {}
@@ -200,10 +205,55 @@ class OpenAICompatClient:
             self._reasoning_fields_ok = False
             res = await self._http.post(f"{self.base_url}/chat/completions", json=payload, **kw)
         if res.status_code >= 400:
-            name = llm_provider.provider_name(self.provider or llm_provider.guess_provider(self.base_url))
-            raise llm_provider.LlmError(f"{name} error {res.status_code}: {llm_provider.error_detail(res)}",
-                                        status=res.status_code)
+            raise self._error(res.status_code, llm_provider.error_detail(res))
         return res
+
+    async def _chat_stream(self, payload: dict, on_text: Callable[[str], Awaitable[None]]) -> str:
+        """Streamed completion (SSE). Calls on_text with the content so far after each chunk; returns it all.
+        The read timeout applies between chunks, so a slow model only has to start answering in time."""
+        fields = llm_provider.reasoning_fields(self.provider, self.thinking) if self._reasoning_fields_ok else {}
+        for extra in ([fields, {}] if fields else [{}]):
+            body = {**payload, **extra, "stream": True}
+            async with self._http.stream("POST", f"{self.base_url}/chat/completions", json=body) as res:
+                if res.status_code in (400, 422) and extra:   # server doesn't know the reasoning fields
+                    self._reasoning_fields_ok = False
+                    continue
+                if res.status_code >= 400:
+                    await res.aread()
+                    raise self._error(res.status_code, llm_provider.error_detail(res))
+                content = ""
+                async for line in res.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except ValueError:
+                        continue
+                    if chunk.get("error"):
+                        err = chunk["error"]
+                        raise self._error(500, str(err.get("message", err) if isinstance(err, dict) else err))
+                    choices = chunk.get("choices") or [{}]
+                    delta = (choices[0].get("delta") or {}).get("content")   # reasoning deltas are ignored
+                    if delta:
+                        content += delta
+                        await on_text(content)
+                return content
+        raise AssertionError("unreachable")
+
+    async def _content(self, payload: dict, on_text: Callable[[str], Awaitable[None]] | None) -> str:
+        if on_text is not None and self.stream:
+            try:
+                return await self._chat_stream(payload, on_text)
+            except llm_provider.LlmError as err:
+                if err.status not in (400, 422) or _structured_output_unsupported(err):
+                    raise
+                logger.warning("coach LLM: streaming rejected, using non-streamed requests (%s)", err)
+                self.stream = False
+        res = await self._chat(payload)
+        return res.json()["choices"][0]["message"].get("content") or ""
 
     async def warmup(self) -> None:
         """Load the model before the first card is due, so that card doesn't hit the short timeout."""
@@ -211,36 +261,56 @@ class OpenAICompatClient:
                    "max_tokens": 1, "temperature": 0}
         await self._chat(payload, timeout=self.WARMUP_TIMEOUT_S)
 
-    async def json_completion(self, system: str, user: str, schema: dict, max_tokens: int = 220) -> dict:
+    async def json_completion(self, system: str, user: str, schema: dict, max_tokens: int = 220,
+                              on_text: Callable[[str], Awaitable[None]] | None = None) -> dict:
+        """JSON reply. With streaming on, on_text receives the raw content so far as it's generated."""
         payload = {
             "model": await self.model_id(),
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0.3,
             "max_tokens": max_tokens + (llm_provider.THINKING_EXTRA_TOKENS if self.thinking else 0),
         }
-        res = None
+        content = None
         if self._structured:
             try:
-                res = await self._chat({**payload, "response_format": {
-                    "type": "json_schema", "json_schema": {"name": "cards", "schema": schema}}})
+                content = await self._content({**payload, "response_format": {
+                    "type": "json_schema", "json_schema": {"name": "cards", "schema": schema}}}, on_text)
             except llm_provider.LlmError as err:
                 if not _structured_output_unsupported(err):
                     raise
                 # e.g. Homebrew Ollama with MLX models lacks the grammar library (501): rely on the prompt
                 logger.warning("coach LLM: structured output unsupported, using prompt-only JSON (%s)", err)
                 self._structured = False
-        if res is None:
+        if content is None:
             payload["messages"][0]["content"] = (
                 f"{system}\n\nReply with a single JSON object matching this JSON schema, no other text:\n"
                 f"{json.dumps(schema)}")
-            res = await self._chat(payload)
-        content = res.json()["choices"][0]["message"].get("content") or ""
+            content = await self._content(payload, on_text)
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
         match = re.search(r"\{.*\}", content, re.S)
         return json.loads(match.group(0)) if match else {"cards": []}
 
     async def aclose(self) -> None:
         await self._http.aclose()
+
+
+_FIELD_RE = re.compile(r'"(kind|headline|body)"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def partial_cards(text: str) -> list[dict]:
+    """Card fields that are already complete in a (possibly unfinished) streamed JSON reply, in order.
+    A field name seen again starts the next card."""
+    text = re.sub(r"<think>.*?(?:</think>|$)", "", text, flags=re.S)
+    cards: list[dict] = []
+    for m in _FIELD_RE.finditer(text):
+        try:
+            value = json.loads(f'"{m.group(2)}"')
+        except ValueError:
+            continue
+        if not cards or m.group(1) in cards[-1]:
+            cards.append({})
+        cards[-1][m.group(1)] = value
+    return cards
 
 
 _NUM_RE = re.compile(r"\$?\d[\d,.]*\s?(?:%|percent|[kmb]\b|million|billion)?", re.I)
@@ -445,42 +515,84 @@ class CoachingEngine:
                 else:
                     await self.emit({"type": "ask", "state": "empty"})
 
+    def _make_card(self, raw: dict, trigger: str, prio: int, sources: str) -> CoachCard | None:
+        kind = raw.get("kind") if raw.get("kind") in CARD_KINDS else "question"
+        headline = str(raw.get("headline", "")).strip().strip('"')
+        body = str(raw.get("body", "")).strip()
+        if not headline or len(headline.split()) > MAX_HEADLINE_WORDS:
+            return None
+        if not is_grounded(f"{headline} {body}", sources):
+            logger.info("dropped ungrounded card: %s", headline)
+            return None
+        if self._is_duplicate(headline):
+            return None
+        return CoachCard(id=uuid.uuid4().hex[:10], kind=kind, headline=headline, body=body,
+                         priority=max(prio, 1), ttl_s=45 if prio <= 1 else 75, trigger=trigger,
+                         created_at_ms=int(time.time() * 1000))
+
     async def _generate_cards(self, trigger: str, prio: int) -> int:
         t = time.perf_counter()
+        limit = 1 if trigger == "ask" else 2
+        sources = f"{self.prep_notes}\n{self.agenda}\n{self.notes}\n" + "\n".join(u.text for u in self.telemetry.history)
+        slots: dict[int, CoachCard | None] = {}   # card index -> card shown (None = rejected)
+        pending: set[int] = set()                 # shown from the stream, body not sent yet
+        emitted = 0
+
+        async def show(i: int, raw: dict, partial: bool) -> None:
+            nonlocal emitted
+            card = slots[i] = self._make_card(raw, trigger, prio, sources)
+            if card is None:
+                return
+            emitted += 1
+            logger.info("card %s/%s in %.0fms%s: %s", trigger, card.kind, (time.perf_counter() - t) * 1000,
+                        " (streamed headline)" if partial else "", card.headline)
+            if partial:
+                pending.add(i)
+                await self.emit({**card.to_json(), "partial": True})
+                if trigger == "ask" and emitted == 1:
+                    await self.emit({"type": "ask", "state": "done"})
+            else:
+                await self.emit(card.to_json())
+
+        async def finish(i: int, body: str) -> None:
+            """Send the body of a card whose headline was already shown (also its final, persisted form)."""
+            card = slots.get(i)
+            if card is None or i not in pending:
+                return
+            pending.discard(i)
+            card.body = body.strip() if body.strip() and is_grounded(f"{card.headline} {body}", sources) else ""
+            await self.emit({**card.to_json(), "type": "card_update"})
+
+        async def on_text(text: str) -> None:
+            for i, raw in enumerate(partial_cards(text)[:limit]):
+                if i not in slots and raw.get("headline"):
+                    await show(i, raw if "body" in raw else {**raw, "body": ""}, partial="body" not in raw)
+                elif "body" in raw:
+                    await finish(i, raw["body"])
+
         self.coord.busy(True)
         try:
             data = await self.llm.json_completion(SYSTEM_PROMPT, self._build_prompt(trigger), CARD_SCHEMA,
-                                                  max_tokens=160 if self.coord.pressure() else 220)
+                                                  max_tokens=160 if self.coord.pressure() else 220,
+                                                  **({"on_text": on_text} if getattr(self.llm, "stream", False) else {}))
         except asyncio.CancelledError:
+            for i in list(pending):   # preempted mid-stream: keep (and persist) the headline-only card
+                await finish(i, "")
             raise
         except Exception as err:  # noqa: BLE001
+            for i in list(pending):
+                await finish(i, "")
             msg = self._describe(err)
             logger.warning("coach LLM call failed (%s): %s", trigger, msg)
             self._last_call_failed = True
             await self._set_llm_status(False, msg)
-            return 0
+            return emitted
         finally:
             self.coord.busy(False)
         await self._set_llm_status(True)
-        latency_ms = (time.perf_counter() - t) * 1000
-        sources = f"{self.prep_notes}\n{self.agenda}\n{self.notes}\n" + "\n".join(u.text for u in self.telemetry.history)
-        emitted = 0
-        for raw in data.get("cards", [])[:1 if trigger == "ask" else 2]:
-            kind = raw.get("kind") if raw.get("kind") in CARD_KINDS else "question"
-            headline = str(raw.get("headline", "")).strip().strip('"')
-            body = str(raw.get("body", "")).strip()
-            if not headline or len(headline.split()) > MAX_HEADLINE_WORDS:
-                continue
-            if not is_grounded(f"{headline} {body}", sources):
-                logger.info("dropped ungrounded card: %s", headline)
-                continue
-            if self._is_duplicate(headline):
-                continue
-            card = CoachCard(id=uuid.uuid4().hex[:10], kind=kind, headline=headline,
-                             body=body, priority=max(prio, 1),
-                             ttl_s=45 if prio <= 1 else 75, trigger=trigger,
-                             created_at_ms=int(time.time() * 1000))
-            logger.info("card %s/%s in %.0fms: %s", trigger, kind, latency_ms, headline)
-            await self.emit(card.to_json())
-            emitted += 1
+        for i, raw in enumerate(data.get("cards", [])[:limit]):
+            if i in slots:
+                await finish(i, str(raw.get("body", "")))
+            else:
+                await show(i, raw, partial=False)
         return emitted

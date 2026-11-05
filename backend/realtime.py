@@ -74,6 +74,7 @@ class RealtimeConfig:
     llm_api_url: str = "http://127.0.0.1:1234/v1"
     llm_model: str | None = None
     llm_thinking: bool = False       # model reasoning ("think"); off keeps cards fast
+    llm_streaming: bool = True       # stream cards: the headline shows before the body is written
     asr_profile: str = "auto"        # auto (planner decides) | ultra | low | balanced | accurate
     asr_backend: str = "auto"        # auto (planner decides per channel) | gpu | cpu
     asr_adaptive: bool = True        # runtime governor steps profiles down/up on measured lag
@@ -93,6 +94,7 @@ class RealtimeConfig:
             llm_api_url=c.get("llm_api_url", cls.llm_api_url),
             llm_model=c.get("llm_model") or None,
             llm_thinking=llm_provider.parse_bool(c.get("llm_thinking")),
+            llm_streaming=llm_provider.parse_bool(c.get("llm_streaming"), default=True),
             asr_profile=c.get("asr_profile", "auto"),
             asr_backend=normalize_backend(c.get("asr_backend", "auto")),
             asr_adaptive=(c.get("asr_adaptive", "true").lower() not in ("false", "0", "off")),
@@ -264,7 +266,8 @@ class MeetingSession:
         self.controller = adaptive.AdaptiveController(
             self.plan, self.asr, cal=rt.cal, emit=self._publish_status,
             on_severe=lambda: self.coach.yield_gpu(), enabled=cfg.asr_adaptive)
-        self.llm = OpenAICompatClient(cfg.llm_api_url, model=cfg.llm_model, thinking=cfg.llm_thinking)
+        self.llm = OpenAICompatClient(cfg.llm_api_url, model=cfg.llm_model, thinking=cfg.llm_thinking,
+                                      stream=cfg.llm_streaming)
         self.coach = CoachingEngine(
             self.llm, self._emit, mode=meta["mode"], agenda=meta["agenda"], prep_notes=meta["prep_notes"],
             instructions=cfg.coach_instructions, telemetry=SpeechTelemetry(fillers=cfg.filler_words),
@@ -289,7 +292,8 @@ class MeetingSession:
 
     async def _emit(self, event: dict) -> None:
         bus.publish(self.meeting_id, event)
-        if event.get("type") == "card":
+        # A streamed card is shown headline-first ("partial") and saved once its body arrives ("card_update").
+        if (event.get("type") == "card" and not event.get("partial")) or event.get("type") == "card_update":
             self._spawn(asyncio.to_thread(_persist_card, self.meeting_id, event))
 
     async def _on_asr(self, ev: AsrEvent) -> None:

@@ -25,6 +25,8 @@ html, body, #root { background: transparent !important; margin: 0; overflow: hid
 .hud-card.p1 .kind { color: #ff7b7b; }
 .hud-card .headline { font-size: 20px; font-weight: 650; line-height: 1.25; margin-top: 2px; }
 .hud-card .body { font-size: 14px; opacity: .8; margin-top: 4px; }
+.hud-card .body.pending { opacity: .4; letter-spacing: 2px; animation: hud-pulse 1.2s ease-in-out infinite; }
+@keyframes hud-pulse { 50% { opacity: .15; } }
 .hud-card.pinned .headline { color: #6bffa8; }
 .hud-card footer { font-size: 10px; opacity: .5; margin-top: 4px; min-height: 12px; }
 .ttl { height: 2px; background: rgba(255,255,255,.08); margin-top: 8px; border-radius: 1px; overflow: hidden; }

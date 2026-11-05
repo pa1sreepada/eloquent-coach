@@ -53,6 +53,7 @@ export default function HudApp() {
     }
     else if (e.type === 'llm_status') setLlmError(e.ok ? null : e.message)
     else if (e.type === 'card') dispatch({ type: 'card', card: e })
+    else if (e.type === 'card_update') dispatch({ type: 'card_update', card: e })
     else if (e.type === 'telemetry') setTele(e)
     else if (e.type === 'asr_status') setAsr(e)
     else if (e.type === 'transcript') {
@@ -102,7 +103,8 @@ export default function HudApp() {
           <article key={card.id} className={`hud-card p${card.priority} ${deck.pinned ? 'pinned' : ''}`}>
             <div className="kind">{KIND_LABEL[card.kind] ?? card.kind.toUpperCase()}</div>
             <div className="headline">{card.headline}</div>
-            {card.body && <div className="body">{card.body}</div>}
+            {card.body ? <div className="body">{card.body}</div>
+              : card.partial && <div className="body pending" aria-label="Writing the details">•••</div>}
             <TtlBar createdAt={card.created_at_ms} ttl={card.ttl_s} frozen={deck.pinned || deck.locked} />
             <footer>{deck.queue.length > 0 && `+${deck.queue.length} queued · ←/→`}</footer>
           </article>

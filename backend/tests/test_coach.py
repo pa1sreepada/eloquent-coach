@@ -348,6 +348,66 @@ def test_llm_failure_reaches_hud():
     asyncio.run(run())
 
 
+def test_streaming():
+    """Headline-first cards: the headline shows as soon as it's complete, the body follows as an update."""
+    from coach_engine import partial_cards
+    assert partial_cards('{"cards": [{"kind": "risk", "headline": "Who owns QA?", "bo') == \
+        [{"kind": "risk", "headline": "Who owns QA?"}]
+    assert partial_cards('<think>plan "headline": "no"') == []
+    two = partial_cards('{"cards":[{"kind":"bluf","headline":"A \\"quoted\\" one","body":""},{"kind":"risk","headline":"B"')
+    assert two == [{"kind": "bluf", "headline": 'A "quoted" one', "body": ""}, {"kind": "risk", "headline": "B"}], two
+
+    reply = json.dumps({"cards": [
+        {"kind": "question", "headline": "Slip the date or cut payments scope?", "body": "40 open bugs make August 12 risky."},
+        {"kind": "risk", "headline": "Who owns the launch event decision?", "body": "Budget is $9M."}]})
+    requests = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        requests.append(body)
+        if not body.get("stream"):
+            return httpx.Response(200, json={"choices": [{"message": {"content": reply}}]})
+        chunks = [{"choices": [{"delta": {"reasoning": "thinking..."}}]}]
+        chunks += [{"choices": [{"delta": {"content": reply[i:i + 7]}}]} for i in range(0, len(reply), 7)]
+        sse = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+        return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+    async def run():
+        out = []
+        async def emit(e): out.append(e)
+        llm = OpenAICompatClient("http://127.0.0.1:1234/v1", model="m", stream=True)
+        llm.provider = llm_provider.LMSTUDIO
+        llm._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        eng = CoachingEngine(llm, emit, prep_notes="QA has 40 open bugs; launch event booked for August 12.")
+        assert await eng._generate_cards("objection", 2) == 2
+        assert requests[-1]["stream"] is True
+        kinds = [(e["type"], e.get("partial", False), e["headline"][:3]) for e in out]
+        # Each headline is shown before its body is known; the body follows as a card_update.
+        assert kinds[0] == ("card", True, "Sli") and out[0]["body"] == "", out
+        first_update = next(i for i, e in enumerate(out) if e["type"] == "card_update")
+        assert out[first_update]["id"] == out[0]["id"]
+        assert out[first_update]["body"] == "40 open bugs make August 12 risky."
+        second = [e for e in out if e.get("headline", "").startswith("Who owns")]
+        assert [e["type"] for e in second] == ["card", "card_update"] and second[0]["partial"]
+        assert second[1]["body"] == "", "ungrounded body ($9M) is dropped, headline kept"
+
+        # A server that rejects streaming falls back to one normal request and stops streaming.
+        def no_stream(req: httpx.Request) -> httpx.Response:
+            if json.loads(req.content).get("stream"):
+                return httpx.Response(400, json={"error": "stream not supported"})
+            return handler(req)
+        llm2 = OpenAICompatClient("http://127.0.0.1:8080/v1", model="m", stream=True)
+        llm2.provider = llm_provider.GENERIC
+        llm2._http = httpx.AsyncClient(transport=httpx.MockTransport(no_stream))
+        seen = []
+        async def on_text(t): seen.append(t)
+        data = await llm2.json_completion("sys", "user", {"type": "object"}, on_text=on_text)
+        assert data["cards"][0]["kind"] == "question" and not llm2.stream and seen == []
+        await llm.aclose(); await llm2.aclose()
+
+    asyncio.run(run())
+
+
 def test_structured_output_fallback():
     """Homebrew Ollama + MLX model answers 501 to response_format; cards must still arrive."""
     calls = []
@@ -446,4 +506,5 @@ test_provider_detection_and_model_choice()
 test_llm_failure_reaches_hud()
 test_structured_output_fallback()
 test_thinking_setting()
+test_streaming()
 print("llm providers ok")

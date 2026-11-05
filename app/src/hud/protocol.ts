@@ -18,6 +18,7 @@ export type CardKind =
 
 export interface CoachCard {
   id: string
+  partial?: boolean            // headline shown, body still being written
   kind: CardKind
   headline: string
   body: string
@@ -27,7 +28,11 @@ export interface CoachCard {
   created_at_ms: number
 }
 
-export interface CardEvent extends CoachCard { type: 'card' }
+/** partial: streamed headline-first; the body follows in a CardUpdateEvent with the same id. */
+export interface CardEvent extends CoachCard { type: 'card'; partial?: boolean }
+
+/** Final form of a card that was shown headline-first (body filled in, possibly empty). */
+export interface CardUpdateEvent extends CoachCard { type: 'card_update' }
 
 export interface TelemetryEvent {
   type: 'telemetry'
@@ -84,4 +89,4 @@ export interface LlmStatusEvent {
   message: string
 }
 
-export type CoachEvent = TranscriptEvent | CardEvent | TelemetryEvent | AsrStatusEvent | AskEvent | LlmStatusEvent
+export type CoachEvent = TranscriptEvent | CardEvent | CardUpdateEvent | TelemetryEvent | AsrStatusEvent | AskEvent | LlmStatusEvent

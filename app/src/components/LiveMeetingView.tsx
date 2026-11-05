@@ -81,6 +81,8 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
       const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       setInsights(prev => [{ id: e.id, category: e.kind, headline: e.headline, body: e.body || undefined, time },
         ...prev.filter(i => i.id !== e.id)].slice(0, 50));
+    } else if (e.type === 'card_update') {
+      setInsights(prev => prev.map(i => (i.id === e.id ? { ...i, body: e.body || undefined } : i)));
     } else if (e.type === 'telemetry') {
       setMetrics({ talkTime: e.my_voiced_s / 60, pacing: e.my_wpm, fillerCount: e.fillers_total, sharePct: e.talk_share_pct });
       setAlerts(e.alerts);
