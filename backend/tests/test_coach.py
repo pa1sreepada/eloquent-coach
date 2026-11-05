@@ -347,7 +347,68 @@ def test_structured_output_fallback():
     asyncio.run(run())
 
 
+def test_thinking_setting():
+    """Settings' thinking toggle reaches both clients as the fields each server understands."""
+    def make(kind, reject_fields=False):
+        bodies = []
+        base, _ = fake_server(kind)
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if req.url.path == "/v1/chat/completions":
+                body = json.loads(req.content)
+                bodies.append(body)
+                if reject_fields and ("reasoning_effort" in body or "think" in body):
+                    return httpx.Response(400, json={"error": "unknown field"})
+                cards = {"cards": []}
+                return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(cards)}}]})
+            return base.handle_request(req)
+        return httpx.MockTransport(handler), bodies
+
+    async def run():
+        port = {"ollama": 11434, "lmstudio": 1234, "generic": 8080}
+        for kind, thinking, want in [
+            ("ollama", False, {"reasoning_effort": "none", "think": False}),
+            ("ollama", True, {"think": True}),
+            ("lmstudio", False, {"reasoning_effort": "none"}),
+            ("lmstudio", True, {}),
+            ("generic", True, {}),
+        ]:
+            transport, bodies = make(kind)
+            llm = OpenAICompatClient(f"http://127.0.0.1:{port[kind]}/v1", model="m", thinking=thinking)
+            llm._http = httpx.AsyncClient(transport=transport)
+            await llm.json_completion("sys", "user", {"type": "object"}, max_tokens=200)
+            got = {k: bodies[-1][k] for k in ("reasoning_effort", "think") if k in bodies[-1]}
+            assert got == want, (kind, thinking, got)
+            assert bodies[-1]["max_tokens"] == (200 + llm_provider.THINKING_EXTRA_TOKENS if thinking else 200)
+            await llm.aclose()
+
+        # A server that rejects the fields still answers, and isn't sent them again.
+        transport, bodies = make("lmstudio", reject_fields=True)
+        llm = OpenAICompatClient("http://127.0.0.1:1234/v1", model="m")
+        llm._http = httpx.AsyncClient(transport=transport)
+        await llm.json_completion("sys", "user", {"type": "object"})
+        await llm.json_completion("sys", "user", {"type": "object"})
+        assert [("reasoning_effort" in b) for b in bodies] == [True, False, False], bodies
+        await llm.aclose()
+
+        # Post-meeting client reads the toggle from Settings.
+        for thinking in (False, True):
+            transport, bodies = make("ollama")
+            client = LMStudioClient("http://127.0.0.1:11434/v1")
+            client._config = lambda t=thinking: ("http://127.0.0.1:11434/v1", "m", t)
+            real = httpx.AsyncClient
+            httpx.AsyncClient = lambda **kw: real(transport=transport)
+            try:
+                await client.complete("sys", "user", max_tokens=300)
+            finally:
+                httpx.AsyncClient = real
+            assert bodies[-1]["think"] is thinking and ("reasoning_effort" in bodies[-1]) is not thinking
+    assert llm_provider.parse_bool("true") and not llm_provider.parse_bool(None)
+    asyncio.run(run())
+
+
 test_provider_detection_and_model_choice()
 test_llm_failure_reaches_hud()
 test_structured_output_fallback()
+test_thinking_setting()
 print("llm providers ok")

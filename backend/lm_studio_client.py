@@ -25,25 +25,26 @@ class LMStudioClient:
     def __init__(self, base_url: str = "http://127.0.0.1:1234/v1"):
         self.base_url = base_url.rstrip('/')
         self._ctx_cache: dict[tuple[str, str], int] = {}
-        # Reasoning models (Gemma 4, Qwen 3, ...) can spend the whole budget "thinking" and return
-        # empty content; the briefing doesn't benefit from it. Dropped if the server rejects it.
-        self._no_reasoning = True
+        # Reasoning models (Gemma 4, Qwen 3, ...) think unless told not to; Settings decides (off by
+        # default, since it can eat the whole budget). The fields are dropped if the server rejects them.
+        self._reasoning_fields_ok = True
         self.chars_per_token = DEFAULT_CHARS_PER_TOKEN   # calibrated from real usage below
         self.last_error: str | None = None               # user-facing reason the last call returned ""
 
-    def _config(self) -> tuple[str, str]:
-        """Current (api_url, model) from Settings; model may be "" (auto-detect)."""
+    def _config(self) -> tuple[str, str, bool]:
+        """Current (api_url, model, thinking) from Settings; model may be "" (auto-detect)."""
         try:
             from database import SessionLocal, AppConfig
             db = SessionLocal()
             try:
                 c = {r.key: r.value for r in db.query(AppConfig).filter(
-                    AppConfig.key.in_(("llm_api_url", "llm_model"))).all()}
+                    AppConfig.key.in_(("llm_api_url", "llm_model", "llm_thinking"))).all()}
             finally:
                 db.close()
-            return (c.get("llm_api_url") or self.base_url).rstrip('/'), (c.get("llm_model") or "").strip()
+            return ((c.get("llm_api_url") or self.base_url).rstrip('/'), (c.get("llm_model") or "").strip(),
+                    llm_provider.parse_bool(c.get("llm_thinking")))
         except Exception:  # noqa: BLE001
-            return self.base_url, ""
+            return self.base_url, "", False
 
     async def _resolve_model(self, client: httpx.AsyncClient, base_url: str, configured: str) -> str:
         if configured:
@@ -75,14 +76,16 @@ class LMStudioClient:
         return self._ctx_cache[key]
 
     async def context_tokens(self) -> int:
-        base_url, configured = self._config()
+        """Usable prompt + answer budget; with thinking on, room for the reasoning is held back."""
+        base_url, configured, thinking = self._config()
         async with httpx.AsyncClient() as client:
-            return await self._context_tokens(client, base_url, await self._resolve_model(client, base_url, configured))
+            ctx = await self._context_tokens(client, base_url, await self._resolve_model(client, base_url, configured))
+        return max(2048, ctx - llm_provider.THINKING_EXTRA_TOKENS) if thinking else ctx
 
     async def complete(self, system_prompt: str, user_content: str, *, max_tokens: int = 1000,
                        temperature: float = 0.3) -> str:
         """One chat completion; returns "" on failure. Strips <think> blocks from reasoning models."""
-        base_url, configured = self._config()
+        base_url, configured, thinking = self._config()
         url = f"{base_url}/chat/completions"
         self.last_error = None
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -92,18 +95,17 @@ class LMStudioClient:
                     "messages": [{"role": "system", "content": system_prompt},
                                  {"role": "user", "content": user_content}],
                     "temperature": temperature,
-                    "max_tokens": max_tokens,
+                    "max_tokens": max_tokens + (llm_provider.THINKING_EXTRA_TOKENS if thinking else 0),
                     "stream": False,
                 }
-                if self._no_reasoning:
-                    payload["reasoning_effort"] = "none"
-                response = await client.post(url, json=payload)
-                if response.status_code in (400, 422) and self._no_reasoning:
-                    self._no_reasoning = False
-                    payload.pop("reasoning_effort")
+                provider = await llm_provider.detect_provider(client, base_url)
+                fields = llm_provider.reasoning_fields(provider, thinking) if self._reasoning_fields_ok else {}
+                response = await client.post(url, json={**payload, **fields})
+                if response.status_code in (400, 422) and fields:
+                    self._reasoning_fields_ok = False
                     response = await client.post(url, json=payload)
                 if response.status_code >= 400:
-                    name = llm_provider.provider_name(await llm_provider.detect_provider(client, base_url))
+                    name = llm_provider.provider_name(provider)
                     raise llm_provider.LlmError(
                         f"{name} error {response.status_code}: {llm_provider.error_detail(response)}")
                 data = response.json()

@@ -7,6 +7,7 @@ import LlmConnectionPanel from './LlmConnectionPanel';
 interface Settings extends AsrSettings {
   llm_api_url: string;
   llm_model: string;
+  llm_thinking: 'true' | 'false';
   coach_instructions: string;
   filler_words: string;
   custom_jargon: string;
@@ -16,6 +17,7 @@ export default function SettingsView() {
   const [settings, setSettings] = useState<Settings>({
     llm_api_url: '',
     llm_model: '',
+    llm_thinking: 'false',
     coach_instructions: '',
     asr_profile: 'auto',
     asr_backend: 'auto',
@@ -166,6 +168,7 @@ export default function SettingsView() {
             <LlmConnectionPanel
               url={settings.llm_api_url}
               model={settings.llm_model}
+              thinking={settings.llm_thinking === 'true'}
               modelListId="llm-model-options"
               onUrlChange={url => setSettings(prev => ({ ...prev, llm_api_url: url }))}
             />
@@ -214,6 +217,22 @@ export default function SettingsView() {
             />
             <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
               Coaching cards are event-driven (questions, decisions, monologues) and automatically back off while transcription is under GPU pressure.
+            </small>
+          </div>
+
+          <div style={{ marginTop: '1.5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={settings.llm_thinking === 'true'}
+                onChange={e => setSettings(prev => ({ ...prev, llm_thinking: e.target.checked ? 'true' : 'false' }))}
+              />
+              Enable model thinking / reasoning
+            </label>
+            <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
+              Off (recommended): reasoning models such as Qwen 3 and Gemma 4 answer directly, which keeps live cards fast.
+              On: the model thinks before answering. Summaries may improve, but live cards arrive seconds later.
+              Sent as <code>think</code> to Ollama and <code>reasoning_effort</code> to LM Studio. Applies to the next meeting or summary.
             </small>
           </div>
 

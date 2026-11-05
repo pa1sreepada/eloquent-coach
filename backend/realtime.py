@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 import adaptive
+import llm_provider
 from asr_service import STREAM_PROFILES, AsrEvent, StreamingTranscriptionService, resolve_model_paths
 from coach_engine import CoachingEngine, LlmCoordinator, OpenAICompatClient
 from hardware import HardwareInfo, PowerState, llm_is_local, probe_hardware, read_power_state
@@ -72,6 +73,7 @@ async def _pump(ws: WebSocket, q: asyncio.Queue) -> None:
 class RealtimeConfig:
     llm_api_url: str = "http://127.0.0.1:1234/v1"
     llm_model: str | None = None
+    llm_thinking: bool = False       # model reasoning ("think"); off keeps cards fast
     asr_profile: str = "auto"        # auto (planner decides) | ultra | low | balanced | accurate
     asr_backend: str = "auto"        # auto (planner decides per channel) | gpu | cpu
     asr_adaptive: bool = True        # runtime governor steps profiles down/up on measured lag
@@ -90,6 +92,7 @@ class RealtimeConfig:
         return cls(
             llm_api_url=c.get("llm_api_url", cls.llm_api_url),
             llm_model=c.get("llm_model") or None,
+            llm_thinking=llm_provider.parse_bool(c.get("llm_thinking")),
             asr_profile=c.get("asr_profile", "auto"),
             asr_backend=normalize_backend(c.get("asr_backend", "auto")),
             asr_adaptive=(c.get("asr_adaptive", "true").lower() not in ("false", "0", "off")),
@@ -261,7 +264,7 @@ class MeetingSession:
         self.controller = adaptive.AdaptiveController(
             self.plan, self.asr, cal=rt.cal, emit=self._publish_status,
             on_severe=lambda: self.coach.yield_gpu(), enabled=cfg.asr_adaptive)
-        self.llm = OpenAICompatClient(cfg.llm_api_url, model=cfg.llm_model)
+        self.llm = OpenAICompatClient(cfg.llm_api_url, model=cfg.llm_model, thinking=cfg.llm_thinking)
         self.coach = CoachingEngine(
             self.llm, self._emit, mode=meta["mode"], agenda=meta["agenda"], prep_notes=meta["prep_notes"],
             instructions=cfg.coach_instructions, telemetry=SpeechTelemetry(fillers=cfg.filler_words),

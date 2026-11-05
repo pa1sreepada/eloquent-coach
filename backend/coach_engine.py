@@ -160,19 +160,23 @@ class OpenAICompatClient:
 
     WARMUP_TIMEOUT_S = 180.0   # a cold model load can take minutes; live cards keep the short timeout
 
-    def __init__(self, base_url: str, model: str | None = None, timeout_s: float = 20.0):
+    THINKING_TIMEOUT_S = 60.0  # reasoning adds hundreds of tokens before the card
+
+    def __init__(self, base_url: str, model: str | None = None, timeout_s: float = 20.0,
+                 thinking: bool = False):
         self.base_url = base_url.rstrip("/")
         self._model = model
-        self._http = httpx.AsyncClient(timeout=timeout_s)
-        self._no_reasoning = True   # cards are latency-critical; thinking only adds delay
+        self.thinking = thinking   # off by default: cards are latency-critical
+        self._http = httpx.AsyncClient(timeout=max(timeout_s, self.THINKING_TIMEOUT_S) if thinking else timeout_s)
+        self._reasoning_fields_ok = True   # dropped if the server rejects them
         self._structured = True     # JSON-schema constrained output, when the server supports it
         self.provider: str | None = None
 
     async def model_id(self) -> str:
         """Configured model, else one the server already has loaded (Ollama, LM Studio or generic)."""
+        if self.provider is None:
+            self.provider = await llm_provider.detect_provider(self._http, self.base_url)
         if self._model is None:
-            if self.provider is None:
-                self.provider = await llm_provider.detect_provider(self._http, self.base_url)
             try:
                 models = await llm_provider.list_models(self._http, self.base_url, self.provider)
             except httpx.HTTPError as err:
@@ -189,12 +193,10 @@ class OpenAICompatClient:
 
     async def _chat(self, payload: dict, timeout: float | None = None) -> httpx.Response:
         kw = {"timeout": timeout} if timeout else {}
-        if self._no_reasoning:
-            payload["reasoning_effort"] = "none"   # LM Studio and Ollama both map "none" to thinking off
-        res = await self._http.post(f"{self.base_url}/chat/completions", json=payload, **kw)
-        if res.status_code in (400, 422) and self._no_reasoning:   # server doesn't know the field
-            self._no_reasoning = False
-            payload.pop("reasoning_effort")
+        fields = llm_provider.reasoning_fields(self.provider, self.thinking) if self._reasoning_fields_ok else {}
+        res = await self._http.post(f"{self.base_url}/chat/completions", json={**payload, **fields}, **kw)
+        if res.status_code in (400, 422) and fields:   # server doesn't know the fields
+            self._reasoning_fields_ok = False
             res = await self._http.post(f"{self.base_url}/chat/completions", json=payload, **kw)
         if res.status_code >= 400:
             name = llm_provider.provider_name(self.provider or llm_provider.guess_provider(self.base_url))
@@ -213,7 +215,7 @@ class OpenAICompatClient:
             "model": await self.model_id(),
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0.3,
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens + (llm_provider.THINKING_EXTRA_TOKENS if self.thinking else 0),
         }
         res = None
         if self._structured:

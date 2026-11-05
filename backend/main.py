@@ -45,6 +45,7 @@ def init_default_settings(db: Session):
     defaults = {
         "llm_api_url": "http://127.0.0.1:1234/v1",
         "llm_model": "",
+        "llm_thinking": "false",
         "coach_instructions": "",
         "asr_profile": "auto",
         "asr_backend": "auto",
@@ -80,6 +81,7 @@ async def on_startup():
 class SettingsUpdate(BaseModel):
     llm_api_url: str
     llm_model: str = ""
+    llm_thinking: str = "false"
     coach_instructions: str = ""
     asr_profile: str = "auto"
     asr_backend: str = "auto"
@@ -110,10 +112,12 @@ def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
 
 @app.get("/llm/status")
 async def llm_status(url: str | None = None, model: str | None = None, test: bool = False,
-                     db: Session = Depends(get_db)):
+                     thinking: bool | None = None, db: Session = Depends(get_db)):
     """Which server is at the URL (Ollama / LM Studio / generic), its models, and optionally a real test call.
     Defaults to the saved settings; pass url/model to check values before saving."""
-    config = {c.key: c.value for c in db.query(AppConfig).filter(AppConfig.key.in_(("llm_api_url", "llm_model")))}
+    config = {c.key: c.value for c in db.query(AppConfig).filter(AppConfig.key.in_(("llm_api_url", "llm_model", "llm_thinking")))}
+    if thinking is None:
+        thinking = llm_provider.parse_bool(config.get("llm_thinking"))
     url = (url if url is not None else config.get("llm_api_url") or "").strip().rstrip("/")
     model = (model if model is not None else config.get("llm_model") or "").strip()
     if not re.match(r"^https?://", url):
@@ -141,7 +145,7 @@ async def llm_status(url: str | None = None, model: str | None = None, test: boo
     if not test:
         out["ok"] = True
         return out
-    probe = OpenAICompatClient(url, model=out["model"])
+    probe = OpenAICompatClient(url, model=out["model"], thinking=thinking)
     probe.provider = provider
     try:
         await probe.warmup()

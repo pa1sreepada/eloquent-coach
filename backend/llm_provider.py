@@ -69,6 +69,26 @@ async def detect_provider(client: httpx.AsyncClient, base_url: str) -> str:
     return GENERIC
 
 
+# Extra output budget when thinking is on: reasoning tokens count against max_tokens.
+THINKING_EXTRA_TOKENS = 1024
+
+
+def parse_bool(value, default: bool = False) -> bool:
+    if value is None or str(value).strip() == "":
+        return default
+    return str(value).strip().lower() in ("true", "1", "on", "yes")
+
+
+def reasoning_fields(provider: str | None, thinking: bool) -> dict:
+    """Request fields that turn model thinking on or off.
+    `reasoning_effort` is what LM Studio and Ollama's OpenAI endpoint honour ("none" = off; omitted =
+    the model's default, which is on for reasoning models). Ollama also gets its native `think` flag."""
+    fields: dict = {} if thinking else {"reasoning_effort": "none"}
+    if provider == OLLAMA:
+        fields["think"] = thinking
+    return fields
+
+
 def guess_provider(base_url: str) -> str:
     """Offline guess from the URL's default port, for messages when the server is unreachable."""
     return next((p for hint, p in _PORT_HINTS.items() if hint in base_url), GENERIC)

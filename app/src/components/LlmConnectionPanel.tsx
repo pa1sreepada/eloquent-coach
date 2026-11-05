@@ -40,9 +40,10 @@ const presetButton = (active: boolean): React.CSSProperties => ({
 
 /** Server presets, connection test and model discovery for the LLM settings. Works with LM Studio, Ollama
  *  or any OpenAI-compatible server; the backend detects which one is at the URL. */
-export default function LlmConnectionPanel({ url, model, onUrlChange, modelListId }: {
+export default function LlmConnectionPanel({ url, model, thinking, onUrlChange, modelListId }: {
   url: string;
   model: string;
+  thinking: boolean;
   onUrlChange: (url: string) => void;
   modelListId: string;   // <datalist> id for the Model ID input's suggestions
 }) {
@@ -52,7 +53,7 @@ export default function LlmConnectionPanel({ url, model, onUrlChange, modelListI
   const test = async () => {
     setTesting(true);
     try {
-      const qs = new URLSearchParams({ url, model, test: 'true' });
+      const qs = new URLSearchParams({ url, model, thinking: String(thinking), test: 'true' });
       const res = await fetch(`${API}/llm/status?${qs}`);
       const data = await res.json();
       setStatus(res.ok ? data : { ...emptyStatus(url), message: data.detail || `HTTP ${res.status}` });
