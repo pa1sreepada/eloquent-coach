@@ -244,7 +244,8 @@ def get_meeting_details(meeting_id: int, db: Session = Depends(get_db)):
     if not meeting:
         return {"error": "Meeting not found"}
         
-    transcripts = [{"id": t.id, "speaker": t.speaker, "text": t.text, "timestamp": t.timestamp.isoformat()} for t in meeting.transcripts]
+    transcripts = [_transcript_json(t) for t in sorted(
+        meeting.transcripts, key=lambda t: (t.timestamp or datetime.datetime.min, t.id))]
     metrics = [{
         "talk_time": m.talk_time, 
         "pacing": m.pacing, 
@@ -390,6 +391,58 @@ def rename_meeting(meeting_id: int, body: TitleUpdate, db: Session = Depends(get
     meeting.title = title
     db.commit()
     return {"status": "renamed", "meeting_id": meeting_id, "title": title}
+
+
+SPEAKERS = ("Me", "Participant")
+MAX_TRANSCRIPT_LINE_CHARS = 20000
+
+
+class TranscriptEdit(BaseModel):
+    text: str
+    speaker: str | None = None
+
+
+class TranscriptDelete(BaseModel):
+    ids: list[int]
+
+
+def _transcript_json(t: Transcript) -> dict:
+    return {"id": t.id, "speaker": t.speaker, "text": t.text,
+            "timestamp": t.timestamp.isoformat() if t.timestamp else None}
+
+
+@app.patch("/meetings/{meeting_id}/transcripts/{transcript_id}")
+def edit_transcript_line(meeting_id: int, transcript_id: int, body: TranscriptEdit, db: Session = Depends(get_db)):
+    """Correct one transcript line (text and/or who said it). Regenerate the summary to include the change."""
+    text_ = body.text.strip()
+    if not text_:
+        raise HTTPException(400, "Text can't be empty. Delete the line instead.")
+    if len(text_) > MAX_TRANSCRIPT_LINE_CHARS:
+        raise HTTPException(400, f"A line must be {MAX_TRANSCRIPT_LINE_CHARS} characters or fewer.")
+    if body.speaker is not None and body.speaker not in SPEAKERS:
+        raise HTTPException(400, f"Speaker must be one of: {', '.join(SPEAKERS)}.")
+    row = db.query(Transcript).filter(Transcript.id == transcript_id, Transcript.meeting_id == meeting_id).first()
+    if not row:
+        raise HTTPException(404, "Transcript line not found")
+    row.text = text_
+    if body.speaker is not None:
+        row.speaker = body.speaker
+    db.commit()
+    return _transcript_json(row)
+
+
+@app.post("/meetings/{meeting_id}/transcripts/delete")
+def delete_transcript_lines(meeting_id: int, body: TranscriptDelete, db: Session = Depends(get_db)):
+    """Permanently remove transcript lines (one or many) from a meeting."""
+    if not body.ids:
+        raise HTTPException(400, "No lines selected.")
+    if not db.query(Meeting.id).filter(Meeting.id == meeting_id).first():
+        raise HTTPException(404, "Meeting not found")
+    deleted = (db.query(Transcript)
+               .filter(Transcript.meeting_id == meeting_id, Transcript.id.in_(body.ids))
+               .delete(synchronize_session=False))
+    db.commit()
+    return {"status": "deleted", "deleted": deleted}
 
 
 STORAGE_TABLES = {"meetings": Meeting, "transcripts": Transcript, "insights": Insight, "metrics": Metrics, "app_config": AppConfig}

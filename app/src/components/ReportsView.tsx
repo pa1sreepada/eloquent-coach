@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Clock, FileText, RefreshCw, Cpu, Download, Trash2, Copy, Check, Sparkles, Mail, Pencil } from 'lucide-react';
 import { CoachCard } from './coachKinds';
 import { useNotesAutosave } from './useNotesAutosave';
+import TranscriptEditor from './TranscriptEditor';
 
 const API = 'http://127.0.0.1:8000';
 
@@ -398,20 +399,9 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                 d.transcripts.length === 0 ? (
                   <Empty text="No transcript for this meeting." />
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', maxWidth: '760px' }}>
-                    {d.transcripts.map((t, i) => {
-                      const me = t.speaker === 'Me';
-                      return (
-                        <div key={t.id ?? i}>
-                          <div style={{ fontSize: '0.75rem', marginBottom: '0.15rem', display: 'flex', gap: '0.5rem' }}>
-                            <span style={{ fontWeight: 600, color: me ? '#60a5fa' : '#34d399' }}>{me ? 'You' : 'Participant'}</span>
-                            <span style={{ color: 'var(--text-tertiary)' }}>{timeOf(t.timestamp)}</span>
-                          </div>
-                          <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: 1.55 }}>{t.text}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <TranscriptEditor key={d.id} meetingId={d.id} lines={d.transcripts}
+                    hasSummary={!!(d.summary || d.followup_email)}
+                    onChange={lines => setMeetingDetails(md => (md && md.id === d.id ? { ...md, transcripts: lines } : md))} />
                 )
               )}
             </div>
