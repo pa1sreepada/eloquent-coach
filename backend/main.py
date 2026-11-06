@@ -19,6 +19,7 @@ from metrics_engine import MetricsEngine
 from post_meeting_synthesis import PostMeetingSynthesis, format_summary
 from report_generator import ReportGenerator
 import realtime
+import prompter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(realtime.router)
+app.include_router(prompter.router)
 
 lm_client: LMStudioClient | None = None
 metrics_engine: MetricsEngine | None = None

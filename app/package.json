@@ -21,7 +21,7 @@
     "dev": "vite",
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "test": "node tests/hud.test.ts",
+    "test": "node tests/hud.test.ts && node tests/prompter.test.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },

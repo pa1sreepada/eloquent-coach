@@ -1,0 +1,66 @@
+html, body, #root { background: transparent !important; margin: 0; overflow: hidden; }
+.pr { --bg: .88; position: relative; width: 100vw; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column;
+  border-radius: 16px; overflow: hidden; color: #f4f1ea; user-select: none; -webkit-font-smoothing: antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  background: rgba(8, 10, 12, var(--bg)); backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, .08); }
+.pr-empty { margin: auto; font-size: 14px; opacity: .6; }
+
+.pr-bar { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 11px; letter-spacing: .04em;
+  border-bottom: 1px solid rgba(255,255,255,.06); flex-shrink: 0; }
+.pr-status { white-space: nowrap; font-weight: 600; }
+.pr-status.ok { color: #6bffa8; } .pr-status.wait { color: #9aa4ad; } .pr-status.err { color: #ff8b8b; }
+.pr-status.adlib { color: #f6d27a; animation: pr-pulse 1.6s ease-in-out infinite; }
+.pr-section { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .7; }
+.pr-progress { position: relative; flex: 1; min-width: 60px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.1); }
+.pr-progress > div { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #4bd38a, #6bffa8); transition: width .4s ease; }
+.pr-progress i { position: absolute; top: -2px; width: 2px; height: 8px; background: rgba(255,255,255,.35); }
+.pr-chip { padding: 1px 7px; border-radius: 8px; background: rgba(255,255,255,.08); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pr-chip.pace-fast { color: #ffb86b; background: rgba(255,184,107,.14); }
+.pr-chip.pace-slow { color: #8ecbff; background: rgba(142,203,255,.12); }
+.pr-chip.pace-ok { color: #6bffa8; }
+.pr-controls { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.pr:hover .pr-controls { opacity: 1; }
+.pr-controls button, .pr-wrap-actions button { background: rgba(255,255,255,.08); border: 0; color: inherit; border-radius: 6px;
+  font: inherit; font-size: 12px; padding: 2px 7px; cursor: pointer; }
+.pr-controls button:hover, .pr-wrap-actions button:hover { background: rgba(255,255,255,.2); }
+.pr-controls button.on { background: rgba(107,255,168,.25); }
+
+.pr-viewport { position: relative; flex: 1; overflow: hidden;
+  -webkit-mask-image: linear-gradient(transparent 0, #000 12%, #000 78%, transparent 100%); }
+.pr-eye { position: absolute; left: 0; width: 6px; height: 2px; background: #6bffa8; border-radius: 0 2px 2px 0; box-shadow: 0 0 8px #6bffa8; z-index: 1; }
+.pr-mirror { transform: scaleX(-1); }
+.pr-text { padding: 0 28px; line-height: 1.45; font-weight: 600; transition: transform .45s cubic-bezier(.25,.8,.3,1); will-change: transform; }
+.pr-text p { margin: 0 0 .55em; }
+.pr-text span { color: rgba(244,241,234,.92); transition: color .25s, opacity .25s; cursor: pointer; border-radius: 4px; }
+.pr-text span.read { color: rgba(244,241,234,.32); }
+.pr-text span.para { color: rgba(142,203,255,.45); }
+.pr-text span.skip { color: rgba(244,241,234,.22); text-decoration: line-through; text-decoration-color: rgba(255,139,139,.5); }
+.pr-text span.cur { color: #fff; background: rgba(107,255,168,.16); box-shadow: 0 0 0 3px rgba(107,255,168,.16); }
+.pr-text span.emph { font-style: italic; text-decoration: underline; text-decoration-color: rgba(246,210,122,.7); text-underline-offset: 4px; }
+.mode-paused .pr-text { opacity: .55; }
+.pr-heading { font-size: .5em; letter-spacing: .16em; text-transform: uppercase; color: #6bffa8; margin: .9em 0 .3em; opacity: .85; }
+.pr-note { font-size: .5em; font-weight: 500; font-style: italic; color: #f6d27a; opacity: .75; margin: 0 0 .4em; }
+.pr-text span.pr-cue { display: inline-block; font-size: .45em; font-weight: 600; letter-spacing: .06em; vertical-align: middle;
+  padding: 2px 8px; border-radius: 10px; background: rgba(246,210,122,.14); color: #f6d27a; cursor: default; }
+.pr-text span.pr-cue.now { animation: pr-pulse 1s ease-in-out 3; background: rgba(246,210,122,.4); color: #fff; }
+
+.pr-banner { position: absolute; left: 12px; right: 12px; bottom: 10px; padding: 7px 12px; border-radius: 10px; font-size: 13px; line-height: 1.35;
+  background: rgba(40, 32, 10, .92); border: 1px solid rgba(246,210,122,.35); color: #f6e7c0; animation: pr-in .2s ease-out; }
+.pr-banner b { color: #fff; }
+.pr-banner.soft { background: rgba(20,24,28,.85); border-color: rgba(255,255,255,.1); color: #c5ccd3; text-align: center; }
+.pr-banner.warn { background: rgba(50,14,14,.92); border-color: rgba(255,139,139,.4); color: #ffc9c9; cursor: pointer; }
+.pr-bridge { margin-top: 4px; color: #ffe39a; }
+.pr-bridge.dim { opacity: .55; animation: pr-pulse 1.2s ease-in-out infinite; }
+
+.pr-wrap { position: absolute; inset: 34px 12px 10px; border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;
+  background: rgba(10, 16, 13, .96); border: 1px solid rgba(107,255,168,.25); font-size: 13px; animation: pr-in .25s ease-out; overflow: auto; }
+.pr-wrap-title { font-size: 16px; font-weight: 700; color: #6bffa8; }
+.pr-wrap-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.pr-wrap-grid div { display: flex; flex-direction: column; }
+.pr-wrap-grid b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.pr-wrap-grid span { font-size: 11px; opacity: .6; }
+.pr-wrap-skip { font-size: 12px; opacity: .75; }
+.pr-wrap-actions { display: flex; gap: 6px; margin-top: auto; }
+@keyframes pr-pulse { 50% { opacity: .45; } }
+@keyframes pr-in { from { opacity: 0; transform: translateY(4px); } }

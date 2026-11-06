@@ -95,6 +95,39 @@ class Metrics(Base):
     meeting = relationship("Meeting", back_populates="metrics")
 
 
+class Script(Base):
+    """Teleprompter script (plain text with light markup; see app/src/prompter/script.ts)."""
+    __tablename__ = "scripts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, default="Untitled script")
+    content = Column(Text, default="")
+    target_wpm = Column(Integer, default=150)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    runs = relationship("ScriptRun", back_populates="script", cascade="all, delete-orphan",
+                        order_by="ScriptRun.started_at")
+
+
+class ScriptRun(Base):
+    """One read-through of a script with the teleprompter (rehearsal or live)."""
+    __tablename__ = "script_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    script_id = Column(Integer, ForeignKey("scripts.id"), index=True)
+    started_at = Column(DateTime, default=datetime.datetime.utcnow)
+    duration_s = Column(Integer, default=0)
+    avg_wpm = Column(Integer, nullable=True)
+    coverage_pct = Column(Integer, default=0)
+    adlib_s = Column(Integer, default=0)
+    fillers = Column(Integer, default=0)
+    finished = Column(Integer, default=0)
+    details = Column(Text, nullable=True)    # full report as JSON (sections, skipped sentences, …)
+
+    script = relationship("Script", back_populates="runs")
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
 

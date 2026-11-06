@@ -24,6 +24,7 @@ No audio, transcripts, or prompts leave your computer unless you point it at a r
 | **Live coaching engine** | Event-driven (questions asked, decisions, monologues, objections) rather than on a timer. Produces prioritized cards: leading questions, strategic counterpoints, alignment cues, Pyramid-Principle / BLUF framing — grounded in your agenda and prep notes. |
 | **Telemetry** | Talk-time share, words per minute, filler words, hedges, monologue length, wait time after questions, interruptions, and room sentiment. |
 | **Teleprompter HUD** | Transparent, click-through, always-on-top overlay with a card deck that auto-advances with the conversation, plus a script aligner that follows your prepared talking points as you speak. |
+| **Voice-following teleprompter** | Write or import a script, then float it under your camera. It scrolls as you speak, keeps up with fillers, ad-libs and paraphrasing, and picks up wherever you rejoin. Every read-through is scored. See [Teleprompter](#teleprompter). |
 | **Post-meeting synthesis** | On-demand executive summary per meeting (Reports → Generate), strategic alternatives, metrics history and daily reports. |
 
 ---
@@ -111,6 +112,36 @@ Start a meeting from the dashboard, add an agenda and prep notes (they ground th
 **My Notes.** Jot decisions, names and numbers in the *My Notes* tab of the live view. Notes autosave, steer the live coaching, and are weighted most heavily when the summary is generated. You can keep editing them later in **Meeting History**.
 
 **Follow-up email.** In **Meeting History → Summary**, click *Draft follow-up email* to get a bottom-line-first recap (decisions, next steps with owners, open questions). You can copy it, open it in Mail, or redraft it. Like the summary, it is generated only on demand and never while a meeting is live, so the GPU stays free for the meeting.
+
+### 4. Rehearse or present with the teleprompter
+<a id="teleprompter"></a>
+
+Open **Teleprompter** in the sidebar. Write, paste or import (`.txt`/`.md`) a script, then click **Start teleprompter**. A panel appears just under the camera. Like the HUD, it is click-through, stays on top and is **hidden from screen sharing and recordings**. Hover over it to show the controls.
+
+- **Follows your voice.** Speech is matched against the script word by word, so the line you're reading stays on the eye line (the green tick). Fillers, extra words and recognition slips don't throw it off. Numbers, currency, percentages and contractions match however you say them (*$5M* ↔ "five million dollars").
+- **Go off script.** After a few unscripted words the panel switches to **Ad-lib**, starts a timer and shows the words you need to rejoin. After 10 s the local LLM suggests a one-line **bridge** back. Pick up anywhere in the script, including a later section, and it follows. Sentences you passed over are struck through.
+- **In your own words.** If you say a sentence differently, it is still counted as covered (marked *paraphrased*).
+- **Pace.** A live WPM chip turns amber when you're fast and blue when you're slow, against the script's target pace. The panel also shows section progress and the time remaining.
+- **During a meeting** the prompter follows the meeting's mic transcript, so it doesn't open a second recognizer. Otherwise it uses its own mic-only stream. Nothing it hears is saved.
+- **Wrap-up.** At the end you get coverage, pace, ad-libs, paraphrases, fillers and the sentences you skipped. Each run is saved to the script's **Rehearsals** history so you can see the trend.
+- **Make it speakable** rewrites a script with the local LLM so it reads like speech (you review it before it is applied).
+
+Script markup:
+
+| Markup | Meaning |
+|---|---|
+| `# Heading` | Section, shown on the progress bar |
+| `> note` | Note to yourself, shown but not expected to be read |
+| `[pause]` `[look up]` `[slow]` `[smile]` | Delivery cues that pulse as you reach them |
+| `[next slide]` | Optionally presses → in the front app (enable *Advance slides*; macOS asks for Accessibility permission) |
+| `*word*` | Emphasis |
+
+| Shortcut (while the prompter is open) | Action |
+|---|---|
+| `⌥⌘P` | Pause / resume following (e.g. for Q&A) |
+| `⌥⌘↑` / `⌥⌘↓` | Previous / next sentence |
+
+You can also click any word to jump there. Text size, eye line, width, height, background opacity, mirroring (for beam-splitter glass) and the pace band are under **Prompter display**.
 
 ---
 

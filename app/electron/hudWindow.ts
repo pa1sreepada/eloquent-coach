@@ -56,8 +56,11 @@ export function registerHudIpc(preload: string, devUrl: string | undefined, dist
   ipcMain.on('hud:hide', () => { hud?.hide(); unregisterHudShortcuts() })
   // While a meeting is live, ⌘⇧↩ asks for "what do I say now?" from any app (Zoom, Teams, Keynote…).
   ipcMain.on('meeting:live', (_e, meetingId: unknown) => {
-    liveMeetingId = typeof meetingId === 'number' ? meetingId : null
-    if (liveMeetingId != null) {
+    const id = typeof meetingId === 'number' ? meetingId : null
+    const changed = id !== liveId
+    liveId = id
+    if (changed) liveListeners.forEach(fn => fn(id))
+    if (liveId != null) {
       if (!globalShortcut.isRegistered(ASK_SHORTCUT)) globalShortcut.register(ASK_SHORTCUT, askNow)
     } else {
       globalShortcut.unregister(ASK_SHORTCUT)
@@ -73,12 +76,17 @@ export function registerHudIpc(preload: string, devUrl: string | undefined, dist
 }
 
 const ASK_SHORTCUT = 'CommandOrControl+Shift+Return'
-let liveMeetingId: number | null = null
+let liveId: number | null = null
+const liveListeners: ((id: number | null) => void)[] = []
+
+/** The meeting currently being recorded, if any. */
+export function liveMeetingId() { return liveId }
+export function onLiveMeetingChange(fn: (id: number | null) => void) { liveListeners.push(fn) }
 
 function askNow() {
-  if (liveMeetingId == null) return
+  if (liveId == null) return
   // The card comes back over the events socket to the HUD and the Live view.
-  fetch(`http://127.0.0.1:8000/meetings/${liveMeetingId}/ask`, { method: 'POST' }).catch(() => {})
+  fetch(`http://127.0.0.1:8000/meetings/${liveId}/ask`, { method: 'POST' }).catch(() => {})
 }
 
 const SHORTCUTS: Record<string, () => void> = {

@@ -38,6 +38,7 @@ jobs:
           python tests/test_coach.py
           python tests/test_adaptive.py
           python tests/test_meeting_api.py
+          python tests/test_prompter_api.py
       - name: Vulnerability audit
         working-directory: backend
         run: pip-audit -r requirements.txt --progress-spinner=off

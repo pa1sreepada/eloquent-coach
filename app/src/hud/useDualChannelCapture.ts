@@ -23,9 +23,12 @@ export function useDualChannelCapture(muted: boolean) {
     ctxRef.current = null
   }, [])
 
-  const start = useCallback(async (meetingId: number, onStatus?: (s: 'connected' | 'disconnected') => void) => {
+  /** opts.url streams somewhere other than a meeting (the teleprompter); micOnly skips system audio;
+   *  onMessage receives whatever that socket sends back. */
+  const start = useCallback(async (meetingId: number, onStatus?: (s: 'connected' | 'disconnected') => void,
+    opts: { url?: string; micOnly?: boolean; onMessage?: (data: string) => void } = {}) => {
     const micId = localStorage.getItem('selected_mic') || ''
-    const sysId = localStorage.getItem('selected_system') || ''
+    const sysId = opts.micOnly ? '' : localStorage.getItem('selected_system') || ''
     const mic = await navigator.mediaDevices.getUserMedia({
       audio: { ...(micId ? { deviceId: { exact: micId } } : {}), echoCancellation: true, noiseSuppression: true },
     }).catch(() => navigator.mediaDevices.getUserMedia({ audio: true }))
@@ -50,11 +53,12 @@ export function useDualChannelCapture(muted: boolean) {
     node.port.postMessage({ muted })
     merger.connect(node)
 
-    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/audio/${meetingId}`)
+    const ws = new WebSocket(opts.url ?? `ws://127.0.0.1:8000/ws/audio/${meetingId}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
     ws.onopen = () => onStatus?.('connected')
     ws.onclose = () => onStatus?.('disconnected')
+    if (opts.onMessage) ws.onmessage = (m) => { if (typeof m.data === 'string') opts.onMessage?.(m.data) }
     node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
       // Drop rather than queue if the socket is congested (keeps latency bounded).
       if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 64 * 1024) ws.send(e.data)

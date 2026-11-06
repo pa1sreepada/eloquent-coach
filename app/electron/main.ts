@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { registerHudIpc, unregisterHudShortcuts } from './hudWindow'
+import { registerPrompterIpc, unregisterPrompterShortcuts } from './prompterWindow'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -116,6 +117,7 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   unregisterHudShortcuts()
+  unregisterPrompterShortcuts()
   globalShortcut.unregisterAll()
 })
 
@@ -137,5 +139,6 @@ app.whenReady().then(() => {
   // Packaged builds take the dock icon from the .icns; `npm run dev` would otherwise show Electron's.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(path.join(VITE_PUBLIC, 'icon.png'))
   registerHudIpc(path.join(__dirname, 'preload.cjs'), VITE_DEV_SERVER_URL, DIST)
+  registerPrompterIpc(path.join(__dirname, 'preload.cjs'), VITE_DEV_SERVER_URL, DIST)
   createWindow()
 })

@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import appIcon from './assets/icon.svg';
-import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen, ScrollText } from 'lucide-react';
 import LiveMeetingView from './components/LiveMeetingView';
 import DashboardView from './components/DashboardView';
 import SettingsView from './components/SettingsView';
 import ReportsView from './components/ReportsView';
 import DailyReportView from './components/DailyReportView';
+import TeleprompterView from './components/TeleprompterView';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'history' | 'reports' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'history' | 'reports' | 'teleprompter' | 'settings'>('dashboard');
   const [isRecording, setIsRecording] = useState(false);
   const [meetingMode, setMeetingMode] = useState('General Executive');
   const [meetingAgenda, setMeetingAgenda] = useState('');
@@ -61,6 +62,7 @@ function App() {
         )}
         {activeTab === 'history' && <ReportsView initialMeetingId={selectedHistoryId} />}
         {activeTab === 'reports' && <DailyReportView />}
+        {activeTab === 'teleprompter' && <TeleprompterView />}
         {activeTab === 'settings' && <SettingsView />}
       </div>
     );
@@ -90,6 +92,8 @@ function App() {
             active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
           <NavItem icon={<FileText size={18} />} label="Reports" collapsed={collapsed}
             active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
+          <NavItem icon={<ScrollText size={18} />} label="Teleprompter" collapsed={collapsed}
+            active={activeTab === 'teleprompter'} onClick={() => setActiveTab('teleprompter')} />
         </nav>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>

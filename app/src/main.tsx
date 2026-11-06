@@ -4,10 +4,13 @@ import './index.css'
 import App from './App.tsx'
 
 const HudApp = lazy(() => import('./hud/HudApp.tsx'))
-const isHud = window.location.hash === '#hud'
+const PrompterApp = lazy(() => import('./prompter/PrompterApp.tsx'))
+const route = window.location.hash
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isHud ? <Suspense fallback={null}><HudApp /></Suspense> : <App />}
+    {route === '#hud' ? <Suspense fallback={null}><HudApp /></Suspense>
+      : route === '#prompter' ? <Suspense fallback={null}><PrompterApp /></Suspense>
+      : <App />}
   </StrictMode>,
 )
