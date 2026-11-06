@@ -211,6 +211,12 @@ def test_ask_now():
         await eng2.ask()
         await asyncio.sleep(0.05)
         assert events[-1] == {"type": "ask", "state": "empty"}, events
+
+        # Asking again when the best answer resembles a card already shown still answers.
+        events.clear()
+        await eng.ask()
+        await asyncio.sleep(0.05)
+        assert [e["type"] for e in events] == ["ask", "card", "ask"], events
     asyncio.run(run())
 
 

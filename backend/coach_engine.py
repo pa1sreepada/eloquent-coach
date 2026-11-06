@@ -524,7 +524,7 @@ class CoachingEngine:
         if not is_grounded(f"{headline} {body}", sources):
             logger.info("dropped ungrounded card: %s", headline)
             return None
-        if self._is_duplicate(headline):
+        if self._is_duplicate(headline) and trigger != "ask":   # an explicit ask always gets its answer
             return None
         return CoachCard(id=uuid.uuid4().hex[:10], kind=kind, headline=headline, body=body,
                          priority=max(prio, 1), ttl_s=45 if prio <= 1 else 75, trigger=trigger,

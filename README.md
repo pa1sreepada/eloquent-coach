@@ -106,7 +106,7 @@ Start a meeting from the dashboard, add an agenda and prep notes (they ground th
 | `⌘⇧→` / `⌘⇧←` | Next / previous card |
 | `⌘⇧X` | Dismiss current card |
 | `⌘⇧L` | Lock / unlock the HUD (click-through vs. draggable) |
-| `⌘⇧↩` | **What do I say now?** — one best line for this moment, pushed to the HUD (works from any app while a meeting is live) |
+| `⌘⇧↩` | **What do I say now?** — one best line for this moment, pushed to the front of the HUD (labelled **YOUR ASK**) and pinned as a gold **Say this now** banner at the top of the Live view (works from any app while a meeting is live) |
 
 **My Notes.** Jot decisions, names and numbers in the *My Notes* tab of the live view. Notes autosave, steer the live coaching, and are weighted most heavily when the summary is generated. You can keep editing them later in **Meeting History**.
 

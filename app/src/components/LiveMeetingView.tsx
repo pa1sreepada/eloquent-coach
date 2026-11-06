@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Square, Mic, MicOff, Copy, Check, MonitorUp, ArrowDown, Sparkles } from 'lucide-react';
+import { Square, Mic, MicOff, Copy, Check, MonitorUp, ArrowDown, Sparkles, X } from 'lucide-react';
 import { useNotesAutosave } from './useNotesAutosave';
 import { CoachCard } from './coachKinds';
 import { useDualChannelCapture } from '../hud/useDualChannelCapture';
@@ -15,6 +15,8 @@ interface Insight {
   headline: string;
   body?: string;
   time: string;
+  asked?: boolean;    // answer to "What do I say?"
+  pending?: boolean;  // headline streamed, body still being written
 }
 
 const EMPTY_METRICS = { talkTime: 0, pacing: 0, fillerCount: 0, sharePct: 0 };
@@ -32,6 +34,7 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
   const [isHudMode, setIsHudMode] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [asking, setAsking] = useState<'pending' | 'empty' | 'error' | null>(null);
+  const [answerId, setAnswerId] = useState<string | null>(null);   // latest "What do I say?" answer, pinned on top
   const [llmError, setLlmError] = useState<string | null>(null);
   const [pane, setPane] = useState<'coaching' | 'notes'>('coaching');
   const notes = useNotesAutosave(meetingId);
@@ -61,6 +64,7 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
   const askNow = () => {
     if (!meetingId || asking === 'pending') return;
     setAsking('pending');
+    setAnswerId(null);
     fetch(`${API}/meetings/${meetingId}/ask`, { method: 'POST' })
       .then(res => { if (!res.ok) setAsking(null); })
       .catch(() => setAsking(null));
@@ -79,10 +83,12 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
       setTranscripts(prev => applyTranscript(prev, e));
     } else if (e.type === 'card') {
       const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      setInsights(prev => [{ id: e.id, category: e.kind, headline: e.headline, body: e.body || undefined, time },
+      const asked = e.trigger === 'ask';
+      setInsights(prev => [{ id: e.id, category: e.kind, headline: e.headline, body: e.body || undefined, time, asked, pending: !!e.partial },
         ...prev.filter(i => i.id !== e.id)].slice(0, 50));
+      if (asked) setAnswerId(e.id);
     } else if (e.type === 'card_update') {
-      setInsights(prev => prev.map(i => (i.id === e.id ? { ...i, body: e.body || undefined } : i)));
+      setInsights(prev => prev.map(i => (i.id === e.id ? { ...i, body: e.body || undefined, pending: false } : i)));
     } else if (e.type === 'telemetry') {
       setMetrics({ talkTime: e.my_voiced_s / 60, pacing: e.my_wpm, fillerCount: e.fillers_total, sharePct: e.talk_share_pct });
       setAlerts(e.alerts);
@@ -91,6 +97,7 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
     }
   }, []);
   useCoachEvents(meetingId, onCoachEvent);
+  const answer = answerId ? insights.find(i => i.id === answerId) ?? null : null;
 
   const resetState = () => {
     setMeetingId(null);
@@ -239,6 +246,28 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
         </div>
       )}
 
+      {answer && (
+        <div className="slide-up" style={{ flexShrink: 0, padding: '0.85rem 1.1rem', borderRadius: '12px', display: 'flex', gap: '0.9rem', alignItems: 'flex-start',
+          background: 'rgba(246,210,122,0.08)', border: '1px solid rgba(246,210,122,0.45)' }}>
+          <Sparkles size={18} color="#f6d27a" style={{ marginTop: 2, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.06em', color: '#f6d27a', textTransform: 'uppercase' }}>
+              Say this now · {answer.time}
+            </div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.4, marginTop: '0.2rem' }}>{answer.headline}</div>
+            {answer.body ? <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{answer.body}</div>
+              : answer.pending && <div className="pulse-animation" style={{ color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>•••</div>}
+          </div>
+          <button className="icon-btn" style={{ width: 26, height: 26, color: copiedId === answer.id ? '#10b981' : undefined }} title="Copy"
+            onClick={() => handleCopyText(answer.id, answer.body ? `${answer.headline}\n${answer.body}` : answer.headline)}>
+            {copiedId === answer.id ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+          <button className="icon-btn" style={{ width: 26, height: 26 }} title="Dismiss" onClick={() => setAnswerId(null)}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '1rem', flex: 1, minHeight: 0 }}>
         {/* Transcript */}
         <section className="glass-panel" style={{ flex: 1.15, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, position: 'relative' }}>
@@ -291,7 +320,8 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
                 </div>
               ) : (
                 insights.map((insight) => (
-                  <CoachCard key={insight.id} kind={insight.category} headline={insight.headline} body={insight.body} time={insight.time}
+                  <CoachCard key={insight.id} kind={insight.category} headline={insight.headline} body={insight.body}
+                    time={insight.asked ? `You asked · ${insight.time}` : insight.time}
                     action={
                       <button className="icon-btn" style={{ width: 26, height: 26, color: copiedId === insight.id ? '#10b981' : undefined }}
                         onClick={() => handleCopyText(insight.id, insight.body ? `${insight.headline}\n${insight.body}` : insight.headline)}

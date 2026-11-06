@@ -51,8 +51,10 @@ export function deckReducer(s: DeckState, a: DeckAction): DeckState {
   switch (a.type) {
     case 'card': {
       if (s.active?.id === a.card.id || s.queue.some(c => c.id === a.card.id)) return s
-      // Preempt a lower-priority active card unless I'm mid-delivery or locked.
-      if (s.active && !s.pinned && !s.locked && a.card.priority < s.active.priority) {
+      // Preempt a lower-priority active card unless I'm mid-delivery or locked. An answer to my own
+      // "What do I say?" always comes to the front (unless I'm mid-delivery).
+      const asked = a.card.trigger === 'ask'
+      if (s.active && !s.pinned && (asked || (!s.locked && a.card.priority < s.active.priority))) {
         const queue = [s.active, ...s.queue].sort(byPriority).slice(0, MAX_QUEUE)
         return { ...s, active: a.card, queue }
       }

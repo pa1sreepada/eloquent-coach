@@ -101,7 +101,9 @@ export default function HudApp() {
 
         {card ? (
           <article key={card.id} className={`hud-card p${card.priority} ${deck.pinned ? 'pinned' : ''}`}>
-            <div className="kind">{KIND_LABEL[card.kind] ?? card.kind.toUpperCase()}</div>
+            <div className={`kind ${card.trigger === 'ask' ? 'asked' : ''}`}>
+              {card.trigger === 'ask' && 'YOUR ASK · '}{KIND_LABEL[card.kind] ?? card.kind.toUpperCase()}
+            </div>
             <div className="headline">{card.headline}</div>
             {card.body ? <div className="body">{card.body}</div>
               : card.partial && <div className="body pending" aria-label="Writing the details">•••</div>}

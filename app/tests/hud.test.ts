@@ -12,6 +12,13 @@ assert.equal(s.active?.id, 'a')
 s = deckReducer(s, { type: 'card', card: c('b', 1, 'Counter capacity concern with contractor budget') })
 assert.equal(s.active?.id, 'b', 'p1 preempts'); assert.equal(s.queue[0].id, 'a')
 s = deckReducer(s, { type: 'card', card: c('b', 1, 'dup') }); assert.equal(s.queue.length, 1, 'dedupe')
+// My own ask preempts an equal-priority card, even when the deck is locked
+{
+  let t = deckReducer(initialDeck, { type: 'card', card: c('p', 1, 'Answer their pricing question') })
+  t = deckReducer(t, { type: 'toggleLock' })
+  t = deckReducer(t, { type: 'card', card: { ...c('ask1', 1, 'Propose a two week slip'), trigger: 'ask' } })
+  assert.equal(t.active?.id, 'ask1'); assert.equal(t.queue[0].id, 'p')
+}
 // Streamed card: headline first, body fills in place (active or queued), unknown ids are ignored
 {
   let t = deckReducer(initialDeck, { type: 'card', card: { ...c('h', 2, 'Who owns QA?'), partial: true } })
