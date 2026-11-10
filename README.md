@@ -2,7 +2,7 @@
 
 # Eloquent Coach
 
-*Make every word land.*
+*Your executive coach, in a whisper.*
 
 **A private, real-time communication coach for executives — running entirely on your own machine.**
 

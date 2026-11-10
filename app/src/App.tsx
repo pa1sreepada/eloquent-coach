@@ -79,7 +79,7 @@ function App() {
           <img src={appIcon} alt="" width={40} height={40} style={{ margin: '-4px', flexShrink: 0 }} />
           <div className="label" style={{ lineHeight: 1.15, whiteSpace: 'nowrap' }}>
             <div style={{ fontSize: '1.02rem', fontWeight: 600, letterSpacing: '-0.01em' }}>Eloquent Coach</div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>Make every word land</div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>Your coach, in a whisper</div>
           </div>
         </div>
 
