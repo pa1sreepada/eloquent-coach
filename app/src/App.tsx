@@ -72,6 +72,8 @@ function App() {
     <div className="app-container">
       {/* Sidebar */}
       <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+        {/* Room for the macOS close/minimise/zoom buttons; also lets you drag the window from here. */}
+        <div className="titlebar" />
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 4px', marginBottom: '1.75rem', height: '36px' }}>
           {/* The SVG has macOS icon-grid padding; scale it so the tile fills 32px. */}
           <img src={appIcon} alt="" width={40} height={40} style={{ margin: '-4px', flexShrink: 0 }} />

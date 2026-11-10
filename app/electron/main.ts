@@ -91,6 +91,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     titleBarStyle: 'hiddenInset', // Mac OS typical window style
+    trafficLightPosition: { x: 18, y: 18 },
   })
 
   // Start the python backend when the window is created

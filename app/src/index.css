@@ -151,6 +151,7 @@ p {
   overflow: hidden;
 }
 .sidebar.collapsed { width: 64px; }
+.sidebar .titlebar { height: 28px; margin: -0.5rem -0.75rem 0.75rem; flex-shrink: 0; -webkit-app-region: drag; }
 .sidebar .label { white-space: nowrap; transition: opacity 0.15s ease; }
 .sidebar.collapsed .label { opacity: 0; pointer-events: none; }
 
