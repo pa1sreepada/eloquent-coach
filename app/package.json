@@ -3,13 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "license": "MIT",
-  "productName": "Second Chair",
-  "description": "Second Chair: your executive coach, in a whisper. Local, real-time meeting coaching (Electron + React UI)",
+  "productName": "Eloquent Coach",
+  "description": "Eloquent Coach: your executive coach, in a whisper. Local, real-time meeting coaching (Electron + React UI)",
   "type": "module",
   "main": "dist-electron/main.js",
   "build": {
-    "appId": "com.secondchair.app",
-    "productName": "Second Chair",
+    "appId": "com.eloquentcoach.app",
+    "productName": "Eloquent Coach",
     "mac": { "icon": "build/icon.icns", "category": "public.app-category.productivity" },
     "win": { "icon": "build/icon.png" },
     "linux": { "icon": "build/icon.png" }

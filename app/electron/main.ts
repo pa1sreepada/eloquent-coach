@@ -27,8 +27,15 @@ import { spawn, type ChildProcess } from 'node:child_process'
 
 let win: BrowserWindow | null = null
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
-const APP_NAME = 'Second Chair'
+const APP_NAME = 'Eloquent Coach'
 app.setName(APP_NAME)
+// Keep saved preferences (mic choice, prompter settings…) from when the app was called "Second Chair".
+try {
+  const appData = app.getPath('appData')
+  const legacy = path.join(appData, 'Second Chair')
+  const current = path.join(appData, APP_NAME)
+  if (fs.existsSync(legacy) && !fs.existsSync(current)) fs.renameSync(legacy, current)
+} catch { /* start with fresh preferences */ }
 let backendProcess: ChildProcess | null = null
 
 // venv layout differs per OS; ELOQUENT_PYTHON overrides (e.g. a conda/pyenv interpreter).

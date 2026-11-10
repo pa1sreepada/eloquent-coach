@@ -97,7 +97,7 @@ function parsePayload(p: unknown): Payload | null {
 function advanceSlide() {
   if (process.platform !== 'darwin' || !state?.settings.advanceSlides) return
   execFile('osascript', ['-e', 'tell application "System Events" to key code 124'], (err) => {
-    if (err) send('prompter:notice', 'Couldn’t advance the slide. Allow Second Chair under System Settings → Privacy & Security → Accessibility.')
+    if (err) send('prompter:notice', 'Couldn’t advance the slide. Allow Eloquent Coach under System Settings → Privacy & Security → Accessibility.')
   })
 }
 

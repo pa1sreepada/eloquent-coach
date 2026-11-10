@@ -51,7 +51,7 @@ export default function PrompterApp() {
   }, [])
 
   if (!payload) {
-    return <div className="pr" style={{ ['--bg' as string]: settings.opacity }}><div className="pr-empty">Open a script from Teleprompter in Second Chair.</div></div>
+    return <div className="pr" style={{ ['--bg' as string]: settings.opacity }}><div className="pr-empty">Open a script from Teleprompter in Eloquent Coach.</div></div>
   }
   return <Session key={runKey} payload={payload} settings={settings} meetingId={meetingId}
     onSettings={updateSettings} onRestart={() => setRunKey(k => k + 1)} />
