@@ -85,7 +85,8 @@ Eloquent Coach records two inputs: your **microphone** and a **loopback device**
 
 | OS | Loopback device |
 |---|---|
-| macOS | [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole) — create a *Multi-Output Device* (speakers + BlackHole) in Audio MIDI Setup and use it as your call app's output |
+| macOS (14.2+) | **Built in — nothing to install.** Choose *Mac system audio* in Settings; macOS asks once for **Screen & System Audio Recording** (allow it, then restart the app). Running via `npm run dev`, grant it to your terminal app instead. |
+| macOS (alternative) | [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole) — create a *Multi-Output Device* (speakers + BlackHole) in Audio MIDI Setup and use it as your call app's output |
 | Windows | [VB-CABLE](https://vb-audio.com/Cable/) or *Stereo Mix* |
 | Linux | The PulseAudio/PipeWire *Monitor of …* source for your output |
 
@@ -244,7 +245,7 @@ docs/refactor/       architecture & design notes
 | "Python backend not found" in the Electron console | Run `python3 scripts/setup.py`, or set `ELOQUENT_PYTHON`. |
 | Transcripts lag noticeably | Open **Settings → Transcription** and click *Re-measure this machine*; close other GPU-heavy apps; keep *Adaptive* on. |
 | No coaching cards | The HUD and Live Meeting view show *Coaching unavailable: …* with the server's reason (unreachable, model too large for memory, ...). Use **Settings → Test connection** to check the URL and model. The model is warmed up when a meeting starts, so a cold load doesn't time out the first card. |
-| Participant side is silent | Verify the loopback device in Settings and that your call app outputs to it. |
+| Participant side is silent | Verify the loopback device in Settings and that your call app outputs to it. With *Mac system audio*, check System Settings → Privacy & Security → Screen & System Audio Recording, then restart. |
 | Model download fails with `CERTIFICATE_VERIFY_FAILED` (corporate TLS proxy, or macOS python.org builds) | The backend verifies against the OS trust store via `truststore`; re-run `python3 scripts/setup.py` so it is installed. Don't set `SSL_CERT_FILE` unless it points to a bundle that includes your company's root CA (an explicit value is respected). |
 | Model download fails (403 Forbidden, proxy, offline) | Copy files you already have: `python3 scripts/import_models.py "~/Library/Application Support/com.pais.handy/models"` (any file or folder works). They go to `backend/models/`; restart the backend. |
 | npm is very slow or fails with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` (corporate TLS-inspection proxy) | Use the OS certificate store: `export NODE_OPTIONS=--use-system-ca` (Node 22.15+). The setup/update scripts do this automatically. Don't disable `strict-ssl`. |

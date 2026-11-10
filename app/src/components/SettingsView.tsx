@@ -3,6 +3,7 @@ import { Save, Settings2, Database, Mic, RefreshCw } from 'lucide-react';
 import AsrSettingsPanel, { type AsrSettings } from './AsrSettingsPanel';
 import StoragePanel from './StoragePanel';
 import LlmConnectionPanel from './LlmConnectionPanel';
+import { SYSTEM_AUDIO } from '../hud/useDualChannelCapture';
 
 interface Settings extends AsrSettings {
   llm_api_url: string;
@@ -75,12 +76,11 @@ export default function SettingsView() {
           localStorage.setItem('selected_mic', savedMic);
         }
         
-        if (!savedSystem && audioInputs.length > 0) {
+        // First run: prefer a BlackHole device if installed, otherwise the built-in Mac system audio.
+        if (localStorage.getItem('selected_system') === null) {
           const bhDevice = audioInputs.find(d => d.label.toLowerCase().includes('blackhole'));
-          if (bhDevice) {
-            savedSystem = bhDevice.deviceId;
-            localStorage.setItem('selected_system', savedSystem);
-          }
+          savedSystem = bhDevice ? bhDevice.deviceId : SYSTEM_AUDIO;
+          localStorage.setItem('selected_system', savedSystem);
         }
         
         setSelectedMic(savedMic);
@@ -329,7 +329,7 @@ export default function SettingsView() {
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Meeting Loopback (BlackHole - Participant Voices)</label>
+              <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Meeting Loopback (Participant Voices)</label>
               <select 
                 value={selectedSystem}
                 onChange={(e) => {
@@ -346,6 +346,7 @@ export default function SettingsView() {
                   outline: 'none'
                 }}
               >
+                <option value={SYSTEM_AUDIO}>Mac system audio (built-in, no BlackHole)</option>
                 <option value="">None (Mono Mic Only / No Speaker Isolation)</option>
                 {devices.filter(d => d.deviceId !== selectedMic).map(d => (
                   <option key={d.deviceId} value={d.deviceId}>{d.label || `Device ${d.deviceId.slice(0, 5)}`}</option>
@@ -354,7 +355,7 @@ export default function SettingsView() {
             </div>
           </div>
           <small style={{ display: 'block', marginTop: '1rem', color: 'var(--text-tertiary)' }}>
-            Choose your physical microphone for your voice, and your virtual loopback device (e.g. BlackHole) to capture the meeting participants.
+            Choose your physical microphone for your voice. For participants, "Mac system audio" captures whatever your Mac plays (macOS will ask once for Screen &amp; System Audio Recording — allow it, then restart the app); a virtual device like BlackHole also works. Headphones give the cleanest Me/Participant split.
           </small>
         </div>
 

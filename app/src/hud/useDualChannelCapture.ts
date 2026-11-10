@@ -4,6 +4,24 @@ import { useCallback, useEffect, useRef } from 'react'
  * Mic → L ("Me"), system loopback → R ("Participant"), 16 kHz float32 interleaved,
  * shipped in 80 ms frames over ws://…/ws/audio/{id}. Replaces ScriptProcessorNode.
  */
+/** Loopback choice meaning "Mac system output via getDisplayMedia" rather than an input device id. */
+export const SYSTEM_AUDIO = '__system__'
+
+/** Everything the Mac plays (Zoom/Meet/Teams voices). Needs Screen & System Audio Recording permission. */
+async function systemAudioStream(): Promise<MediaStream | null> {
+  try {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+    s.getVideoTracks().forEach(t => { t.stop(); s.removeTrack(t) })
+    // An immediately-ended track means macOS refused the audio tap (permission not granted).
+    if (s.getAudioTracks().some(t => t.readyState === 'live')) return s
+    s.getTracks().forEach(t => t.stop())
+    throw new Error('no live system audio track')
+  } catch (e) {
+    console.warn('System audio capture failed — allow Eloquent Coach in System Settings → Privacy & Security → Screen & System Audio Recording, then restart the app.', e)
+  }
+  return null
+}
+
 export function useDualChannelCapture(muted: boolean) {
   const ctxRef = useRef<AudioContext | null>(null)
   const nodeRef = useRef<AudioWorkletNode | null>(null)
@@ -32,7 +50,9 @@ export function useDualChannelCapture(muted: boolean) {
     const mic = await navigator.mediaDevices.getUserMedia({
       audio: { ...(micId ? { deviceId: { exact: micId } } : {}), echoCancellation: true, noiseSuppression: true },
     }).catch(() => navigator.mediaDevices.getUserMedia({ audio: true }))
-    const sys = sysId
+    const sys = sysId === SYSTEM_AUDIO
+      ? await systemAudioStream()
+      : sysId
       ? await navigator.mediaDevices.getUserMedia({
           audio: { deviceId: { exact: sysId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         }).catch(() => null)

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut } from 'electron'
+import { app, BrowserWindow, globalShortcut, session } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -146,6 +146,13 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   // Packaged builds take the dock icon from the .icns; `npm run dev` would otherwise show Electron's.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(path.join(VITE_PUBLIC, 'icon.png'))
+  // Built-in "Mac system audio" loopback: getDisplayMedia is answered with system-output audio
+  // (Core Audio taps on macOS 14.2+), so no BlackHole is needed. The requesting frame stands in as the
+  // required video source (no screen capture); the renderer drops it. macOS asks once for
+  // Screen & System Audio Recording — for `npm run dev`, the permission belongs to the terminal app.
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    callback({ video: request.frame ?? undefined, audio: 'loopback' })
+  }, { useSystemPicker: false })
   registerHudIpc(path.join(__dirname, 'preload.cjs'), VITE_DEV_SERVER_URL, DIST)
   registerPrompterIpc(path.join(__dirname, 'preload.cjs'), VITE_DEV_SERVER_URL, DIST)
   createWindow()
