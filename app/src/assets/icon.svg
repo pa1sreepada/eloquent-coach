@@ -1,52 +1,70 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2b2f38"/>
-      <stop offset="1" stop-color="#0c0e12"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.32" r="0.6">
-      <stop offset="0" stop-color="#d9a441" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#d9a441" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#fbf8f1"/>
-      <stop offset="1" stop-color="#e9e3d6"/>
-    </linearGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#f6d27a"/>
-      <stop offset="1" stop-color="#c48a2c"/>
-    </linearGradient>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#000" flood-opacity="0.55"/>
+    <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="70"/></filter>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+    <filter id="softglow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#14002e" flood-opacity="0.55"/>
+    </filter>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".5" stop-color="#fff" stop-opacity=".25"/><stop offset="1" stop-color="#fff" stop-opacity=".7"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b0d3f" stop-opacity=".62"/><stop offset="1" stop-color="#0a0520" stop-opacity=".78"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="b0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7df9ff"/><stop offset="1" stop-color="#06b6d4"/></linearGradient>
+    <linearGradient id="b1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93c5fd"/><stop offset="1" stop-color="#3b82f6"/></linearGradient>
+    <linearGradient id="b2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c4b5fd"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="b3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f5a3ff"/><stop offset="1" stop-color="#d946ef"/></linearGradient>
+    <linearGradient id="b4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9cb8"/><stop offset="1" stop-color="#f43f5e"/></linearGradient>
+    <linearGradient id="b5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd0a1"/><stop offset="1" stop-color="#f97316"/></linearGradient>
+    <linearGradient id="b6" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3a8"/><stop offset="1" stop-color="#facc15"/></linearGradient>
+    <radialGradient id="star" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff"/><stop offset=".6" stop-color="#fff7d1"/><stop offset="1" stop-color="#ffd166"/></radialGradient>
   </defs>
 
-  <!-- macOS squircle tile -->
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glow)"/>
-  <rect x="101.5" y="101.5" width="821" height="821" rx="184" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+  <!-- aurora tile -->
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="#2a0b5c"/>
+    <g filter="url(#blur)">
+      <circle cx="210" cy="220" r="300" fill="#ff2d95"/>
+      <circle cx="860" cy="230" r="280" fill="#ff8a00"/>
+      <circle cx="880" cy="860" r="320" fill="#00c2ff"/>
+      <circle cx="170" cy="880" r="310" fill="#7b2ff7"/>
+      <circle cx="560" cy="560" r="200" fill="#ff4fd8" opacity=".55"/>
+    </g>
+    <rect x="100" y="100" width="824" height="824" fill="url(#sheen)"/>
+  </g>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="4"/>
 
-  <!-- the lead's card, behind -->
-  <g transform="rotate(-9 512 540)">
-    <rect x="300" y="300" width="400" height="470" rx="34" fill="#3b404b" opacity="0.9"/>
+  <!-- glass speech bubble -->
+  <g filter="url(#drop)">
+    <path d="M 447 731 A 250 250 0 1 0 321 651 Q 312 738 262 792 Q 370 792 447 731 Z" fill="url(#glass)"/>
+  </g>
+  <path d="M 447 731 A 250 250 0 1 0 321 651 Q 312 738 262 792 Q 370 792 447 731 Z" fill="none" stroke="url(#rim)" stroke-width="7" stroke-linejoin="round"/>
+
+  <!-- voice waveform -->
+  <g filter="url(#glow)">
+    <rect x="315" y="435" width="36" height="110" rx="18" fill="url(#b0)"/>
+    <rect x="373" y="380" width="36" height="220" rx="18" fill="url(#b1)"/>
+    <rect x="431" y="330" width="36" height="320" rx="18" fill="url(#b2)"/>
+    <rect x="489" y="395" width="36" height="190" rx="18" fill="url(#b3)"/>
+    <rect x="547" y="345" width="36" height="290" rx="18" fill="url(#b4)"/>
+    <rect x="605" y="400" width="36" height="180" rx="18" fill="url(#b5)"/>
+    <rect x="663" y="445" width="36" height="90" rx="18" fill="url(#b6)"/>
   </g>
 
-  <!-- the note being slid across: folded gold corner, last line in gold -->
-  <g transform="rotate(7 520 520)" filter="url(#shadow)">
-    <path d="M 352 286 H 610 L 704 380 V 734 A 30 30 0 0 1 674 764 H 352 A 30 30 0 0 1 322 734 V 316 A 30 30 0 0 1 352 286 Z" fill="url(#paper)"/>
-    <path d="M 610 286 L 704 380 H 640 A 30 30 0 0 1 610 350 Z" fill="url(#gold)"/>
-    <rect x="376" y="420" width="220" height="26" rx="13" fill="#b9b2a4"/>
-    <rect x="376" y="486" width="268" height="26" rx="13" fill="#b9b2a4"/>
-    <rect x="376" y="552" width="180" height="26" rx="13" fill="#b9b2a4"/>
-    <rect x="378" y="648" width="16" height="24" rx="8" fill="url(#gold)"/>
-    <rect x="404" y="634" width="16" height="52" rx="8" fill="url(#gold)"/>
-    <rect x="430" y="618" width="16" height="84" rx="8" fill="url(#gold)"/>
-    <rect x="456" y="640" width="16" height="40" rx="8" fill="url(#gold)"/>
-    <rect x="482" y="612" width="16" height="96" rx="8" fill="url(#gold)"/>
-    <rect x="508" y="630" width="16" height="60" rx="8" fill="url(#gold)"/>
-    <rect x="534" y="645" width="16" height="30" rx="8" fill="url(#gold)"/>
-    <rect x="560" y="624" width="16" height="72" rx="8" fill="url(#gold)"/>
-    <rect x="586" y="638" width="16" height="44" rx="8" fill="url(#gold)"/>
-    <rect x="612" y="649" width="16" height="22" rx="8" fill="url(#gold)"/>
+  <!-- insight sparkles -->
+  <g filter="url(#softglow)">
+    <path d="M 760 196 C 768 250 782 264 836 272 C 782 280 768 294 760 348 C 752 294 738 280 684 272 C 738 264 752 250 760 196 Z" fill="url(#star)"/>
+    <path d="M 846 362 C 849 382 854 387 874 390 C 854 393 849 398 846 418 C 843 398 838 393 818 390 C 838 387 843 382 846 362 Z" fill="#fff"/>
+    <circle cx="690" cy="180" r="9" fill="#fff"/>
   </g>
 </svg>
