@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "license": "MIT",
   "productName": "Eloquent Coach",
-  "description": "Eloquent Coach: your executive coach, in a whisper. Local, real-time meeting coaching (Electron + React UI)",
+  "description": "Eloquent Coach: make every word land. Local, real-time meeting coaching (Electron + React UI)",
   "type": "module",
   "main": "dist-electron/main.js",
   "build": {
