@@ -7,7 +7,7 @@ uvicorn[standard]>=0.30,<1
 sqlalchemy>=2.0,<3
 pydantic>=2.7,<3
 numpy>=2.0,<3
-httpx>=0.28,<1
+httpx>=0.28.1,<1
 websockets>=13,<18
 
 # Encryption at rest: SQLCipher (AES-256) database, key kept in the OS credential store
