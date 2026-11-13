@@ -8,7 +8,7 @@ sqlalchemy>=2.0,<3
 pydantic>=2.7,<3
 numpy>=2.0,<3
 httpx>=0.28,<1
-websockets>=13,<18
+websockets>=17.4,<18
 
 # Encryption at rest: SQLCipher (AES-256) database, key kept in the OS credential store
 sqlcipher3-wheels>=0.5.7,<0.6
