@@ -116,6 +116,7 @@ def verify(do_npm: bool, do_py: bool, skip_build: bool) -> list[tuple[str, bool,
             ("backend imports", [PY, "-c", "import main"], BACKEND),
             ("backend coach tests", [PY, "tests/test_coach.py"], BACKEND),
             ("backend adaptive tests", [PY, "tests/test_adaptive.py"], BACKEND),
+            ("backend encryption tests", [PY, "tests/test_secure_store.py"], BACKEND),
         ]
     if do_npm:
         checks += [("frontend typecheck", [NPM, "run", "typecheck"], APP),

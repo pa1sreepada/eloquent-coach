@@ -2,6 +2,8 @@
 *.db
 *.db-shm
 *.db-wal
+*.db.plaintext
+*.db.encrypting*
 *.sqlite*
 backend/transcripts/
 .env

@@ -16,10 +16,11 @@ interface StorageInfo {
   free_bytes: number;
   sqlite_version: string;
   journal_mode: string;
+  encryption: string;
+  key_store: string;
   tables: StorageTable[];
   oldest_meeting: string | null;
   newest_meeting: string | null;
-  legacy_transcripts_dir: string | null;
   legacy_transcripts_files: number;
   legacy_transcripts_bytes: number;
 }
@@ -29,6 +30,7 @@ const TABLE_LABELS: Record<string, string> = {
   transcripts: 'Transcript lines',
   insights: 'Coaching cards',
   metrics: 'Speaking metrics',
+  legacy_transcript_files: 'Transcript files from older versions',
   app_config: 'Settings',
 };
 
@@ -133,15 +135,17 @@ export default function StoragePanel() {
             <br />
             SQLite {info.sqlite_version} · {info.journal_mode.toUpperCase()} mode
             {info.wal_bytes > 0 && ` · ${formatBytes(info.wal_bytes)} pending in write-ahead log`}
-            {info.legacy_transcripts_dir && (
+            <br />
+            Encrypted with {info.encryption}; the key is kept in the {info.key_store}. Other apps can't read the file without it.
+            {info.legacy_transcripts_files > 0 && (
               <>
                 <br />
-                Legacy transcript files: {info.legacy_transcripts_files} ({formatBytes(info.legacy_transcripts_bytes)}) in{' '}
-                <code style={{ userSelect: 'all' }}>{info.legacy_transcripts_dir}</code>
+                {info.legacy_transcripts_files} transcript file(s) from older versions ({formatBytes(info.legacy_transcripts_bytes)}) are stored
+                inside the encrypted database and included in the meeting's Markdown export.
               </>
             )}
             <br />
-            Only text is stored. Markdown exports are generated on demand and aren't saved.
+            Only text is stored. Markdown exports are generated on demand, aren't saved by the app and aren't encrypted once you save them.
           </small>
         </>
       )}

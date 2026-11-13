@@ -11,7 +11,9 @@ from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from database import init_db, get_db, engine, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics
+from database import (init_db, get_db, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics,
+                      LegacyTranscriptFile, DB_PATH)
+import secure_store
 from lm_studio_client import LMStudioClient
 from coach_engine import OpenAICompatClient
 import llm_provider
@@ -328,10 +330,11 @@ def export_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
     for t in meeting.transcripts:
         time_str = t.timestamp.strftime("%H:%M:%S") if t.timestamp else ""
         export_content += f"[{time_str}] **{t.speaker}**: {t.text}\n"
-        
-    return {"meeting_id": meeting_id, "title": meeting.title, "export_markdown": export_content}
 
-TRANSCRIPTS_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcripts"))
+    for f in db.query(LegacyTranscriptFile).filter(LegacyTranscriptFile.meeting_id == meeting_id).all():
+        export_content += f"\n## Original transcript file ({f.filename})\n{f.content.decode('utf-8', 'replace')}\n"
+
+    return {"meeting_id": meeting_id, "title": meeting.title, "export_markdown": export_content}
 
 
 @app.delete("/meetings/{meeting_id}")
@@ -342,15 +345,11 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Meeting not found")
     if any(s.meeting_id == meeting_id for s in realtime.runtime.sessions):
         raise HTTPException(409, "This meeting is still live. End it before deleting.")
-    path = meeting.transcript_filepath
-    for model in (Transcript, Insight, Metrics):
+    for model in (Transcript, Insight, Metrics, LegacyTranscriptFile):
         db.query(model).filter(model.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()
     db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))   # don't leave deleted pages in the WAL file
-    # Only remove files inside the app's transcripts folder.
-    if path and os.path.realpath(path).startswith(TRANSCRIPTS_DIR + os.sep) and os.path.isfile(path):
-        os.remove(path)
     return {"status": "deleted", "meeting_id": meeting_id}
 
 
@@ -363,16 +362,9 @@ class MeetingUpdate(BaseModel):
     mode: str | None = None   # meeting type; decides the summary sections next time it's generated
 
 
-def _title_filename(title: str) -> str:
-    """Filesystem-safe version of a meeting title (macOS/Windows reserved characters removed)."""
-    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', " ", title)
-    return re.sub(r"\s+", " ", name).strip(" .") or "Meeting"
-
-
 @app.patch("/meetings/{meeting_id}")
 def update_meeting(meeting_id: int, body: MeetingUpdate, db: Session = Depends(get_db)):
-    """Rename a meeting and/or change its type. Everything else links by id; a legacy transcript file is
-    renamed to match the title."""
+    """Rename a meeting and/or change its type. Everything else links by id."""
     if body.title is None and body.mode is None:
         raise HTTPException(400, "Nothing to update.")
     title = mode = None
@@ -391,26 +383,10 @@ def update_meeting(meeting_id: int, body: MeetingUpdate, db: Session = Depends(g
         raise HTTPException(404, "Meeting not found")
     if mode is not None:
         meeting.mode = mode
-    if title is None:
-        db.commit()
-        return {"status": "updated", "meeting_id": meeting_id, "title": meeting.title, "mode": meeting.mode}
-
-    path = meeting.transcript_filepath
-    if path and os.path.realpath(path).startswith(TRANSCRIPTS_DIR + os.sep) and os.path.isfile(path):
-        ext = os.path.splitext(path)[1] or ".txt"
-        target = os.path.join(TRANSCRIPTS_DIR, _title_filename(title) + ext)
-        if os.path.realpath(target) != os.path.realpath(path):
-            if os.path.exists(target):
-                target = os.path.join(TRANSCRIPTS_DIR, f"{_title_filename(title)} ({meeting_id}){ext}")
-            try:
-                os.rename(path, target)
-                meeting.transcript_filepath = target
-            except OSError as err:
-                logger.warning(f"Could not rename transcript file for meeting {meeting_id}: {err}")
-
-    meeting.title = title
+    if title is not None:
+        meeting.title = title
     db.commit()
-    return {"status": "updated", "meeting_id": meeting_id, "title": title, "mode": meeting.mode}
+    return {"status": "updated", "meeting_id": meeting_id, "title": meeting.title, "mode": meeting.mode}
 
 
 SPEAKERS = ("Me", "Participant")
@@ -465,11 +441,12 @@ def delete_transcript_lines(meeting_id: int, body: TranscriptDelete, db: Session
     return {"status": "deleted", "deleted": deleted}
 
 
-STORAGE_TABLES = {"meetings": Meeting, "transcripts": Transcript, "insights": Insight, "metrics": Metrics, "app_config": AppConfig}
+STORAGE_TABLES = {"meetings": Meeting, "transcripts": Transcript, "insights": Insight, "metrics": Metrics,
+                  "legacy_transcript_files": LegacyTranscriptFile, "app_config": AppConfig}
 
 
 def _db_path() -> str:
-    return os.path.realpath(engine.url.database)
+    return os.path.realpath(DB_PATH)
 
 
 def _file_size(path: str) -> int:
@@ -490,8 +467,7 @@ def get_storage(db: Session = Depends(get_db)):
     ]
     page_size = db.execute(text("PRAGMA page_size")).scalar() or 0
     free_pages = db.execute(text("PRAGMA freelist_count")).scalar() or 0
-    legacy_files = [f for f in os.listdir(TRANSCRIPTS_DIR) if os.path.isfile(os.path.join(TRANSCRIPTS_DIR, f))] \
-        if os.path.isdir(TRANSCRIPTS_DIR) else []
+    legacy_bytes = db.query(func.sum(func.length(LegacyTranscriptFile.content))).scalar() or 0
     oldest, newest = db.query(func.min(Meeting.start_time), func.max(Meeting.start_time)).one()
     return {
         "db_path": path,
@@ -500,12 +476,13 @@ def get_storage(db: Session = Depends(get_db)):
         "free_bytes": page_size * free_pages,
         "sqlite_version": db.execute(text("SELECT sqlite_version()")).scalar(),
         "journal_mode": db.execute(text("PRAGMA journal_mode")).scalar(),
+        "encryption": f"SQLCipher {db.execute(text('PRAGMA cipher_version')).scalar()} (AES-256)",
+        "key_store": secure_store.key_store(),
         "tables": tables,
         "oldest_meeting": oldest.isoformat() if oldest else None,
         "newest_meeting": newest.isoformat() if newest else None,
-        "legacy_transcripts_dir": TRANSCRIPTS_DIR if legacy_files else None,
-        "legacy_transcripts_files": len(legacy_files),
-        "legacy_transcripts_bytes": sum(_file_size(os.path.join(TRANSCRIPTS_DIR, f)) for f in legacy_files),
+        "legacy_transcripts_files": db.query(func.count(LegacyTranscriptFile.id)).scalar(),
+        "legacy_transcripts_bytes": legacy_bytes,
     }
 
 
@@ -517,17 +494,6 @@ def reveal_storage():
         raise HTTPException(404, "Database file not found")
     subprocess.run(["open", "-R", path])
     return {"status": "opened"}
-
-
-@app.post("/meetings/{meeting_id}/open-folder")
-def open_meeting_folder(meeting_id: int, db: Session = Depends(get_db)):
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
-    if meeting and meeting.transcript_filepath and os.path.exists(meeting.transcript_filepath):
-        import subprocess
-        # Reveal in Finder on macOS
-        subprocess.run(["open", "-R", meeting.transcript_filepath])
-        return {"status": "opened"}
-    return {"error": "File not found"}
 
 _synthesis_lock = asyncio.Lock()
 

@@ -1,13 +1,21 @@
-from sqlalchemy import create_engine, event, Column, Integer, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import create_engine, event, Column, Integer, String, Float, DateTime, ForeignKey, Text, LargeBinary
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlcipher3 import dbapi2 as sqlcipher
 import datetime
+import logging
 import os
 
-DATABASE_URL = "sqlite:///./eloquent_coach.db"
+import secure_store
 
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
-)
+logger = logging.getLogger(__name__)
+
+DB_PATH = os.path.abspath("eloquent_coach.db")
+DATABASE_URL = f"sqlite:///{DB_PATH}"
+# Older versions also wrote one plaintext .txt per meeting here; they are imported into the DB and removed.
+TRANSCRIPTS_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcripts"))
+
+# Encrypted at rest with SQLCipher; the key is read lazily (first connection) from the OS credential store.
+engine = create_engine(DATABASE_URL, module=sqlcipher, creator=lambda: secure_store.connect(DB_PATH))
 
 
 @event.listens_for(engine, "connect")
@@ -128,6 +136,18 @@ class ScriptRun(Base):
     script = relationship("Script", back_populates="runs")
 
 
+class LegacyTranscriptFile(Base):
+    """A transcript file written by older versions, kept inside the encrypted database instead of on disk."""
+    __tablename__ = "legacy_transcript_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), nullable=True, index=True)
+    filename = Column(String)
+    content = Column(LargeBinary)
+    sha256 = Column(String)
+    modified_at = Column(DateTime, nullable=True)
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
 
@@ -136,8 +156,64 @@ class AppConfig(Base):
     value = Column(String)
 
 
+def _db_files() -> tuple[str, ...]:
+    return DB_PATH, DB_PATH + "-wal", DB_PATH + "-shm"
+
+
+def import_legacy_files(transcripts_dir: str = TRANSCRIPTS_DIR) -> int:
+    """Move legacy plaintext transcript files into the encrypted DB, verify each one, then wipe the file."""
+    if not os.path.isdir(transcripts_dir):
+        return 0
+    names = sorted(n for n in os.listdir(transcripts_dir) if os.path.isfile(os.path.join(transcripts_dir, n)))
+    if not names:
+        return 0
+    db = SessionLocal()
+    moved = 0
+    try:
+        by_name = {os.path.basename(m.transcript_filepath): m for m in
+                   db.query(Meeting).filter(Meeting.transcript_filepath.isnot(None)).all()}
+        for name in names:
+            path = os.path.join(transcripts_dir, name)
+            if name == ".DS_Store":
+                secure_store.wipe_file(path)
+                continue
+            with open(path, "rb") as f:
+                data = f.read()
+            digest = secure_store.sha256(data)
+            meeting = by_name.get(name)
+            row = db.query(LegacyTranscriptFile).filter(
+                LegacyTranscriptFile.filename == name, LegacyTranscriptFile.sha256 == digest).first()
+            if not row:   # not already imported by an interrupted earlier run
+                row = LegacyTranscriptFile(
+                    meeting_id=meeting.id if meeting else None, filename=name, content=data, sha256=digest,
+                    modified_at=datetime.datetime.utcfromtimestamp(os.path.getmtime(path)))
+                db.add(row)
+            if meeting:
+                meeting.transcript_filepath = None
+            db.commit()
+            db.refresh(row)
+            if secure_store.sha256(row.content) != digest:
+                raise RuntimeError(f"Legacy transcript {name} didn't round-trip through the database.")
+            secure_store.wipe_file(path)
+            moved += 1
+        # Meetings whose file was already gone shouldn't keep pointing at the old folder.
+        db.query(Meeting).filter(Meeting.transcript_filepath.isnot(None)).update(
+            {Meeting.transcript_filepath: None}, synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+    try:
+        os.rmdir(transcripts_dir)
+    except OSError:
+        pass   # something other than files is left in it
+    logger.info(f"Moved {moved} legacy transcript file(s) into the encrypted database.")
+    return moved
+
+
 def init_db():
+    secure_store.encrypt_existing_database(DB_PATH)
     Base.metadata.create_all(bind=engine)
+    secure_store.restrict_permissions(*_db_files())
     
     # Simple migration logic for existing databases
     from sqlalchemy import inspect, text
@@ -184,6 +260,9 @@ def init_db():
             conn.execute(text("ALTER TABLE metrics ADD COLUMN future_focus_pct FLOAT DEFAULT 0.0"))
             
         conn.commit()
+
+    import_legacy_files()
+    secure_store.restrict_permissions(*_db_files())
 
 def get_db():
     db = SessionLocal()
