@@ -207,9 +207,9 @@ async def bridge(body: BridgeIn):
     try:
         raw = await asyncio.wait_for(_llm.complete(BRIDGE_PROMPT, user, max_tokens=60, temperature=0.5), 25)
     except asyncio.TimeoutError:
-        return {"line": None, "error": "The local LLM took too long."}
+        return {"line": None, "error": "The LLM took too long."}
     line = clean_line(raw)
-    return {"line": line or None, "error": None if line else (_llm.last_error or "The local LLM returned nothing.")}
+    return {"line": line or None, "error": None if line else (_llm.last_error or "The LLM returned nothing.")}
 
 
 class PolishIn(BaseModel):
@@ -231,7 +231,7 @@ async def polish(body: PolishIn):
     raw = await _llm.complete(POLISH_PROMPT, body.content, max_tokens=budget, temperature=0.4)
     text = clean_polish(raw)
     if not text:
-        return {"content": None, "error": _llm.last_error or "The local LLM returned nothing. Make sure LM Studio or Ollama is running."}
+        return {"content": None, "error": _llm.last_error or "The LLM returned nothing. Make sure LM Studio or Ollama is running, or check the external model in Settings."}
     return {"content": text, "error": None}
 
 

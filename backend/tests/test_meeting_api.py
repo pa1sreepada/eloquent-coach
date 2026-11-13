@@ -67,4 +67,25 @@ assert client.patch(f"/meetings/{m_id}", json={"mode": " "}).status_code == 400
 assert client.patch(f"/meetings/{m_id}", json={}).status_code == 400
 r = client.patch(f"/meetings/{m_id}", json={"title": "Weekly sync"})
 assert r.json()["title"] == "Weekly sync" and r.json()["mode"] == "OKR & Delivery Review", r.json()
+
+# External frontier model: keys go to the (stubbed) credential store and are never returned.
+import external_llm
+vault = {}
+external_llm.secure_store.get_secret = vault.get
+external_llm.secure_store.set_secret = lambda a, v: vault.__setitem__(a, v) if v else vault.pop(a, None)
+assert client.put("/external-llm/api-key", json={"provider": "openai", "api_key": "sk-secret-abcdef"}).json()["key_set"]
+assert client.put("/external-llm/api-key", json={"provider": "nope", "api_key": "x"}).status_code == 400
+providers = client.get("/external-llm/providers").json()
+assert {p["id"] for p in providers} >= {"openai", "anthropic", "gemini", "openrouter", "groq", "azure", "custom"}
+assert "sk-secret" not in str(providers) and next(p for p in providers if p["id"] == "openai")["key_set"]
+settings = client.get("/settings").json()
+assert "sk-secret" not in str(settings)
+base = {"llm_api_url": "http://127.0.0.1:1234/v1", "filler_words": "um", "custom_jargon": "ARR"}
+assert client.put("/settings", json={**base, "external_llm_enabled": "true", "external_llm_model": ""}).status_code == 400
+assert client.put("/settings", json={**base, "external_llm_enabled": "true", "external_llm_provider": "custom",
+                                     "external_llm_url": "http://example.com/v1", "external_llm_model": "m"}).status_code == 400
+r = client.put("/settings", json={**base, "external_llm_enabled": "true", "external_llm_model": "gpt-5-mini"})
+assert r.status_code == 200, r.text
+assert client.get("/settings").json()["external_llm_model"] == "gpt-5-mini"
+assert client.get("/external-llm/status", params={"provider": "custom", "url": "http://example.com/v1"}).status_code == 400
 print("meeting api ok")

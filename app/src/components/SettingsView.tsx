@@ -3,9 +3,10 @@ import { Save, Settings2, Database, Mic, RefreshCw } from 'lucide-react';
 import AsrSettingsPanel, { type AsrSettings } from './AsrSettingsPanel';
 import StoragePanel from './StoragePanel';
 import LlmConnectionPanel from './LlmConnectionPanel';
+import ExternalLlmPanel, { type ExternalLlmSettings } from './ExternalLlmPanel';
 import { SYSTEM_AUDIO } from '../hud/useDualChannelCapture';
 
-interface Settings extends AsrSettings {
+interface Settings extends AsrSettings, ExternalLlmSettings {
   llm_api_url: string;
   llm_model: string;
   llm_thinking: 'true' | 'false';
@@ -23,6 +24,10 @@ export default function SettingsView() {
     llm_thinking: 'false',
     llm_streaming: 'true',
     llm_allow_remote: 'false',
+    external_llm_enabled: 'false',
+    external_llm_provider: 'openai',
+    external_llm_url: '',
+    external_llm_model: '',
     coach_instructions: '',
     asr_profile: 'auto',
     asr_backend: 'auto',
@@ -368,6 +373,8 @@ export default function SettingsView() {
             </small>
           </div>
         </div>
+
+        <ExternalLlmPanel value={settings} onChange={patch => setSettings(prev => ({ ...prev, ...patch }))} />
 
         {/* Audio Input Devices */}
         <div className="glass-panel" style={{ padding: '2rem' }}>

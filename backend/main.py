@@ -18,6 +18,7 @@ import api_auth
 from lm_studio_client import LMStudioClient
 from coach_engine import OpenAICompatClient
 import llm_provider
+import external_llm
 from metrics_engine import MetricsEngine
 from post_meeting_synthesis import PostMeetingSynthesis, format_summary
 from report_generator import ReportGenerator
@@ -55,6 +56,10 @@ def init_default_settings(db: Session):
         "llm_thinking": "false",
         "llm_streaming": "true",
         "llm_allow_remote": "false",
+        "external_llm_enabled": "false",
+        "external_llm_provider": "openai",
+        "external_llm_url": "",
+        "external_llm_model": "",
         "coach_instructions": "",
         "asr_profile": "auto",
         "asr_backend": "auto",
@@ -94,6 +99,10 @@ class SettingsUpdate(BaseModel):
     llm_thinking: str = "false"
     llm_streaming: str = "true"
     llm_allow_remote: str = "false"
+    external_llm_enabled: str = "false"
+    external_llm_provider: str = "openai"
+    external_llm_url: str = ""
+    external_llm_model: str = ""
     coach_instructions: str = ""
     asr_profile: str = "auto"
     asr_backend: str = "auto"
@@ -116,6 +125,22 @@ def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
         updates["llm_api_url"] = llm_provider.check_url(updates["llm_api_url"], updates["llm_allow_remote"] == "true")
     except llm_provider.LlmError as err:
         raise HTTPException(400, str(err))
+    updates["external_llm_enabled"] = "true" if llm_provider.parse_bool(updates["external_llm_enabled"]) else "false"
+    updates["external_llm_model"] = updates["external_llm_model"].strip()
+    if updates["external_llm_provider"] not in external_llm.PROVIDERS:
+        raise HTTPException(400, "Unknown external LLM provider.")
+    if external_llm.PROVIDERS[updates["external_llm_provider"]].url:
+        updates["external_llm_url"] = ""   # presets use their fixed endpoint
+    elif updates["external_llm_url"].strip():
+        try:
+            updates["external_llm_url"] = external_llm.resolve_url(updates["external_llm_provider"], updates["external_llm_url"])
+        except llm_provider.LlmError as err:
+            raise HTTPException(400, str(err))
+    if updates["external_llm_enabled"] == "true":
+        try:
+            external_llm.target_from_settings(updates)
+        except llm_provider.LlmError as err:
+            raise HTTPException(400, str(err))
     updates["asr_backend"] = realtime.normalize_backend(updates["asr_backend"])
     for k, v in updates.items():
         conf = db.query(AppConfig).filter(AppConfig.key == k).first()
@@ -141,6 +166,58 @@ def set_llm_api_key(body: ApiKeyUpdate):
         raise HTTPException(400, "Invalid API key.")
     secure_store.set_secret(llm_provider.API_KEY_ACCOUNT, key or None)
     return {"llm_api_key_set": bool(llm_provider.api_key())}
+
+
+class ExternalKeyUpdate(BaseModel):
+    provider: str
+    api_key: str | None = None
+
+
+@app.get("/external-llm/providers")
+def external_providers():
+    """Provider presets, and whether a key is saved for each (the keys themselves are never returned)."""
+    return [{"id": pid, "label": p.label, "url": p.url, "url_hint": p.url_hint, "model_hint": p.model_hint,
+             "key_set": bool(external_llm.api_key(pid))} for pid, p in external_llm.PROVIDERS.items()]
+
+
+@app.put("/external-llm/api-key")
+def set_external_key(body: ExternalKeyUpdate):
+    try:
+        external_llm.set_api_key(body.provider, body.api_key)
+    except llm_provider.LlmError as err:
+        raise HTTPException(400, str(err))
+    return {"provider": body.provider, "key_set": bool(external_llm.api_key(body.provider))}
+
+
+@app.get("/external-llm/status")
+async def external_status(provider: str, url: str = "", model: str = "", test: bool = False):
+    """Lists the provider's models with the saved key and, with test=true, makes one tiny request."""
+    try:
+        target = external_llm.Target(provider, external_llm.resolve_url(provider, url), model.strip())
+    except llm_provider.LlmError as err:
+        raise HTTPException(400, str(err))
+    out = {"provider": provider, "url": target.url, "key_set": bool(external_llm.api_key(provider)),
+           "reachable": False, "models": [], "ok": False, "message": ""}
+    async with httpx.AsyncClient(**external_llm.client_kwargs(provider)) as client:
+        try:
+            out["models"] = await external_llm.list_models(client, target)
+            out["reachable"] = True
+        except Exception as err:  # noqa: BLE001 - some APIs (e.g. Azure deployments) don't list models
+            out["message"] = external_llm.describe(err, target)
+            if isinstance(err, llm_provider.LlmError) and err.status in (401, 403):
+                return out
+        if not test:
+            out["ok"] = out["reachable"]
+            return out
+        if not target.model:
+            out["message"] = "Enter a model ID to test."
+            return out
+        try:
+            await external_llm.chat(client, target, "Reply with OK.", "ping", max_tokens=16, temperature=None)
+            out.update(reachable=True, ok=True, message=f"{target.model} answered on {target.label}.")
+        except Exception as err:  # noqa: BLE001
+            out["message"] = external_llm.describe(err, target)
+    return out
 
 
 @app.get("/llm/status")
@@ -555,7 +632,7 @@ async def draft_followup(meeting_id: int):
     if realtime.runtime.sessions:
         return {"status": "error", "error": "A meeting is in progress. Draft the follow-up after it ends so live coaching stays fast."}
     if _synthesis_lock.locked():
-        return {"status": "error", "error": "The local LLM is busy with another summary. Try again when it finishes."}
+        return {"status": "error", "error": "The LLM is busy with another summary. Try again when it finishes."}
     async with _synthesis_lock:
         email, error = await PostMeetingSynthesis(lm_client).generate_followup(meeting_id)
     return {"status": "success", "email": email} if email else {"status": "error", "error": error}

@@ -4,6 +4,7 @@ import re
 
 import httpx
 
+import external_llm
 import llm_provider
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,38 @@ class LMStudioClient:
         except Exception:  # noqa: BLE001
             return self.base_url, "", False, False
 
+    def _external(self) -> "external_llm.Target | None":
+        """The external frontier model when Settings turns it on (hybrid mode), else None.
+        Raises LlmError when it's on but incomplete, so the user sees why instead of a silent local fallback."""
+        try:
+            from database import SessionLocal, AppConfig
+            db = SessionLocal()
+            try:
+                c = {r.key: r.value for r in db.query(AppConfig).filter(AppConfig.key.like("external_llm_%")).all()}
+            finally:
+                db.close()
+        except Exception:  # noqa: BLE001
+            return None
+        return external_llm.target_from_settings(c)
+
+    async def _complete_external(self, target: "external_llm.Target", system_prompt: str, user_content: str,
+                                 max_tokens: int, temperature: float) -> str:
+        async with httpx.AsyncClient(**external_llm.client_kwargs(target.provider)) as client:
+            try:
+                data = await external_llm.chat(client, target, system_prompt, user_content,
+                                               max_tokens=max_tokens + external_llm.REASONING_BUDGET,
+                                               temperature=temperature)
+                choice = data["choices"][0]
+                content = choice["message"].get("content") or ""
+                if not content.strip():
+                    raise llm_provider.LlmError(f"{target.label} returned an empty answer"
+                                                f"{' (token limit reached)' if choice.get('finish_reason') == 'length' else ''}.")
+                return strip_reasoning(content)
+            except Exception as e:  # noqa: BLE001
+                self.last_error = external_llm.describe(e, target)
+                logger.error("Error calling external LLM %s: %s", target.label, self.last_error)
+                return ""
+
     async def _resolve_model(self, client: httpx.AsyncClient, base_url: str, configured: str) -> str:
         if configured:
             return configured
@@ -77,6 +110,11 @@ class LMStudioClient:
 
     async def context_tokens(self) -> int:
         """Usable prompt + answer budget; with thinking on, room for the reasoning is held back."""
+        try:
+            if self._external() is not None:
+                return external_llm.CONTEXT_TOKENS
+        except llm_provider.LlmError:
+            pass   # complete() reports it
         base_url, configured, thinking, allow_remote = self._config()
         try:
             llm_provider.check_url(base_url, allow_remote)
@@ -88,7 +126,16 @@ class LMStudioClient:
 
     async def complete(self, system_prompt: str, user_content: str, *, max_tokens: int = 1000,
                        temperature: float = 0.3) -> str:
-        """One chat completion; returns "" on failure. Strips <think> blocks from reasoning models."""
+        """One chat completion; returns "" on failure. Strips <think> blocks from reasoning models.
+        Uses the external frontier model instead of the local server when Settings turns it on."""
+        self.last_error = None
+        try:
+            target = self._external()
+        except llm_provider.LlmError as err:
+            self.last_error = str(err)
+            return ""
+        if target is not None:
+            return await self._complete_external(target, system_prompt, user_content, max_tokens, temperature)
         base_url, configured, thinking, allow_remote = self._config()
         url = f"{base_url}/chat/completions"
         self.last_error = None

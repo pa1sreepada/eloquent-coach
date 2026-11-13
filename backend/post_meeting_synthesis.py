@@ -430,7 +430,7 @@ class PostMeetingSynthesis:
             email = clean_email(raw)
             if not email:
                 return None, (self.lm_client.last_error
-                              or "The local LLM returned nothing. Make sure LM Studio or Ollama is running.")
+                              or "The LLM returned nothing. Make sure LM Studio or Ollama is running, or check the external model in Settings.")
             meeting.followup_email = email
             db.commit()
             return email, None

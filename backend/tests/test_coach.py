@@ -497,6 +497,7 @@ def test_thinking_setting():
             transport, bodies = make("ollama")
             client = LMStudioClient("http://127.0.0.1:11434/v1")
             client._config = lambda t=thinking: ("http://127.0.0.1:11434/v1", "m", t, False)
+            client._external = lambda: None
             real = httpx.AsyncClient
             httpx.AsyncClient = lambda **kw: real(transport=transport)
             try:
@@ -508,9 +509,82 @@ def test_thinking_setting():
     asyncio.run(run())
 
 
+def test_external_llm():
+    """External frontier model: https only, per-provider auth headers, API quirks, key redaction, hybrid routing."""
+    import external_llm
+    from lm_studio_client import LMStudioClient
+    keys = {}
+    external_llm.secure_store.get_secret = lambda acct: keys.get(acct)
+    external_llm.secure_store.set_secret = lambda acct, v: keys.__setitem__(acct, v) if v else keys.pop(acct, None)
+    os.environ.pop("ELOQUENT_EXTERNAL_LLM_API_KEY", None)
+
+    for bad in ("http://example.com/v1", "ftp://x/v1", ""):
+        try:
+            external_llm.resolve_url("custom", bad)
+            raise AssertionError(bad)
+        except llm_provider.LlmError:
+            pass
+    assert external_llm.resolve_url("custom", "http://127.0.0.1:9000/v1") == "http://127.0.0.1:9000/v1"
+    assert external_llm.resolve_url("openai", "https://evil.example/v1") == "https://api.openai.com/v1"
+    assert external_llm.target_from_settings({"external_llm_enabled": "false"}) is None
+
+    secret = "sk-test-1234567890"
+    external_llm.set_api_key("anthropic", secret)
+    h = external_llm.client_kwargs("anthropic")["headers"]
+    assert h["Authorization"] == f"Bearer {secret}" and h["x-api-key"] == secret and h["anthropic-version"]
+    assert external_llm.client_kwargs("anthropic")["follow_redirects"] is False
+
+    async def run():
+        # OpenAI: max_completion_tokens; retries without temperature when the model rejects it.
+        external_llm.set_api_key("openai", secret)
+        bodies = []
+        def handler(req):
+            if req.url.path.endswith("/models"):
+                return httpx.Response(200, json={"data": [{"id": "gpt-5-mini"}, {"id": "text-embedding-3-small"}, {"id": "whisper-1"}]})
+            body = json.loads(req.content); bodies.append(body)
+            assert req.headers["authorization"] == f"Bearer {secret}"
+            if "temperature" in body:
+                return httpx.Response(400, json={"error": {"message": "Unsupported value: 'temperature' does not support 0.3"}})
+            return httpx.Response(200, json={"choices": [{"message": {"content": "<think>x</think>Summary"}, "finish_reason": "stop"}]})
+        transport = httpx.MockTransport(handler)
+        target = external_llm.Target("openai", "https://api.openai.com/v1", "gpt-5-mini")
+        async with httpx.AsyncClient(transport=transport) as c:
+            assert await external_llm.list_models(c, target) == ["gpt-5-mini"]
+
+        client = LMStudioClient("http://127.0.0.1:11434/v1")
+        client._external = lambda: target
+        real = httpx.AsyncClient
+        httpx.AsyncClient = lambda **kw: real(transport=transport, headers=kw.get("headers"))
+        try:
+            assert await client.complete("sys", "user", max_tokens=300, temperature=0.3) == "Summary"
+            assert await client.context_tokens() == external_llm.CONTEXT_TOKENS
+        finally:
+            httpx.AsyncClient = real
+        assert "max_completion_tokens" in bodies[-1] and "max_tokens" not in bodies[-1] and "temperature" not in bodies[-1]
+        assert "think" not in bodies[-1] and "reasoning_effort" not in bodies[-1]
+
+        # Errors name the provider and never echo the key.
+        leak = httpx.MockTransport(lambda req: httpx.Response(401, json={"error": {"message": f"Incorrect API key {secret}"}}))
+        httpx.AsyncClient = lambda **kw: real(transport=leak)
+        try:
+            assert await client.complete("sys", "user", max_tokens=50) == ""
+        finally:
+            httpx.AsyncClient = real
+        assert "OpenAI" in client.last_error and secret not in client.last_error, client.last_error
+
+        # Enabled but incomplete: a clear error instead of silently using the local model.
+        client._external = lambda: external_llm.target_from_settings({"external_llm_enabled": "true",
+                                                                       "external_llm_provider": "openai"})
+        assert await client.complete("s", "u", max_tokens=10) == "" and "no model" in client.last_error
+    asyncio.run(run())
+    external_llm.set_api_key("openai", None)
+    assert external_llm.api_key("openai") is None
+
+
 test_provider_detection_and_model_choice()
 test_llm_failure_reaches_hud()
 test_structured_output_fallback()
 test_thinking_setting()
 test_streaming()
+test_external_llm()
 print("llm providers ok")
