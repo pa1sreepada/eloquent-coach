@@ -31,20 +31,20 @@ class LMStudioClient:
         self.chars_per_token = DEFAULT_CHARS_PER_TOKEN   # calibrated from real usage below
         self.last_error: str | None = None               # user-facing reason the last call returned ""
 
-    def _config(self) -> tuple[str, str, bool]:
-        """Current (api_url, model, thinking) from Settings; model may be "" (auto-detect)."""
+    def _config(self) -> tuple[str, str, bool, bool]:
+        """Current (api_url, model, thinking, allow_remote) from Settings; model may be "" (auto-detect)."""
         try:
             from database import SessionLocal, AppConfig
             db = SessionLocal()
             try:
                 c = {r.key: r.value for r in db.query(AppConfig).filter(
-                    AppConfig.key.in_(("llm_api_url", "llm_model", "llm_thinking"))).all()}
+                    AppConfig.key.in_(("llm_api_url", "llm_model", "llm_thinking", "llm_allow_remote"))).all()}
             finally:
                 db.close()
             return ((c.get("llm_api_url") or self.base_url).rstrip('/'), (c.get("llm_model") or "").strip(),
-                    llm_provider.parse_bool(c.get("llm_thinking")))
+                    llm_provider.parse_bool(c.get("llm_thinking")), llm_provider.parse_bool(c.get("llm_allow_remote")))
         except Exception:  # noqa: BLE001
-            return self.base_url, "", False
+            return self.base_url, "", False, False
 
     async def _resolve_model(self, client: httpx.AsyncClient, base_url: str, configured: str) -> str:
         if configured:
@@ -77,19 +77,24 @@ class LMStudioClient:
 
     async def context_tokens(self) -> int:
         """Usable prompt + answer budget; with thinking on, room for the reasoning is held back."""
-        base_url, configured, thinking = self._config()
-        async with httpx.AsyncClient() as client:
+        base_url, configured, thinking, allow_remote = self._config()
+        try:
+            llm_provider.check_url(base_url, allow_remote)
+        except llm_provider.LlmError:
+            return DEFAULT_CONTEXT_TOKENS
+        async with httpx.AsyncClient(**llm_provider.client_kwargs()) as client:
             ctx = await self._context_tokens(client, base_url, await self._resolve_model(client, base_url, configured))
         return max(2048, ctx - llm_provider.THINKING_EXTRA_TOKENS) if thinking else ctx
 
     async def complete(self, system_prompt: str, user_content: str, *, max_tokens: int = 1000,
                        temperature: float = 0.3) -> str:
         """One chat completion; returns "" on failure. Strips <think> blocks from reasoning models."""
-        base_url, configured, thinking = self._config()
+        base_url, configured, thinking, allow_remote = self._config()
         url = f"{base_url}/chat/completions"
         self.last_error = None
-        async with httpx.AsyncClient(timeout=180.0) as client:
+        async with httpx.AsyncClient(timeout=180.0, **llm_provider.client_kwargs()) as client:
             try:
+                llm_provider.check_url(base_url, allow_remote)
                 payload = {
                     "model": await self._resolve_model(client, base_url, configured),
                     "messages": [{"role": "system", "content": system_prompt},

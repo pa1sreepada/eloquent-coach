@@ -6,6 +6,7 @@ export type HudCommand = 'next' | 'prev' | 'dismiss' | 'toggleLock'
 declare global {
   interface Window {
     eloquent?: {
+      apiToken: string
       showHud(meetingId: number, script?: string): void
       hideHud(): void
       setLiveMeeting(meetingId: number | null): void

@@ -1,5 +1,6 @@
 import { BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
 import path from 'node:path'
+import { authHeaders } from './security'
 
 let hud: BrowserWindow | null = null
 // Last meeting/script shown; the HUD page pulls this on load (its React bundle loads lazily and can miss pushes).
@@ -86,7 +87,7 @@ export function onLiveMeetingChange(fn: (id: number | null) => void) { liveListe
 function askNow() {
   if (liveId == null) return
   // The card comes back over the events socket to the HUD and the Live view.
-  fetch(`http://127.0.0.1:8000/meetings/${liveId}/ask`, { method: 'POST' }).catch(() => {})
+  fetch(`http://127.0.0.1:8000/meetings/${liveId}/ask`, { method: 'POST', headers: authHeaders() }).catch(() => {})
 }
 
 const SHORTCUTS: Record<string, () => void> = {

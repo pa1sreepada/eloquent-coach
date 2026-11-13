@@ -2,6 +2,8 @@
 import asyncio, os, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.chdir(tempfile.mkdtemp())   # database.py uses a cwd-relative path; keep any stray file out of backend/
+os.environ["ELOQUENT_STATE_DIR"] = os.getcwd()   # no real token file or key
+os.environ["ELOQUENT_API_TOKEN"] = TOKEN = "t" * 64
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -25,7 +27,8 @@ def override_db():
 
 
 main.app.dependency_overrides[main.get_db] = override_db
-client = TestClient(main.app)   # no `with`: skips startup (ASR warmup)
+client = TestClient(main.app, base_url="http://127.0.0.1:8000",
+                    headers={"Authorization": f"Bearer {TOKEN}"})   # no `with`: skips startup (ASR warmup)
 
 SCRIPT = """# Why now
 Good morning everyone. [pause] Revenue grew 20% with Acme and the EMEA team.

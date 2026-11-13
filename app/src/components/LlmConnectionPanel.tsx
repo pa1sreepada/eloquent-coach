@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle2, AlertTriangle, PlugZap } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, PlugZap, ShieldAlert } from 'lucide-react';
 
 const API = 'http://127.0.0.1:8000';
 
@@ -25,6 +25,8 @@ interface LlmStatus {
   model_source: 'configured' | 'auto';
   ok: boolean;
   message: string;
+  local: boolean;              // server is on this Mac (loopback)
+  exposed_at: string | null;   // same server also answers on this Mac's network address
 }
 
 const gb = (b: number | null) => (b ? ` · ${(b / 1024 ** 3).toFixed(1)} GB` : '');
@@ -40,10 +42,11 @@ const presetButton = (active: boolean): React.CSSProperties => ({
 
 /** Server presets, connection test and model discovery for the LLM settings. Works with LM Studio, Ollama
  *  or any OpenAI-compatible server; the backend detects which one is at the URL. */
-export default function LlmConnectionPanel({ url, model, thinking, onUrlChange, modelListId }: {
+export default function LlmConnectionPanel({ url, model, thinking, allowRemote, onUrlChange, modelListId }: {
   url: string;
   model: string;
   thinking: boolean;
+  allowRemote: boolean;
   onUrlChange: (url: string) => void;
   modelListId: string;   // <datalist> id for the Model ID input's suggestions
 }) {
@@ -53,7 +56,7 @@ export default function LlmConnectionPanel({ url, model, thinking, onUrlChange, 
   const test = async () => {
     setTesting(true);
     try {
-      const qs = new URLSearchParams({ url, model, thinking: String(thinking), test: 'true' });
+      const qs = new URLSearchParams({ url, model, thinking: String(thinking), allow_remote: String(allowRemote), test: 'true' });
       const res = await fetch(`${API}/llm/status?${qs}`);
       const data = await res.json();
       setStatus(res.ok ? data : { ...emptyStatus(url), message: data.detail || `HTTP ${res.status}` });
@@ -92,6 +95,24 @@ export default function LlmConnectionPanel({ url, model, thinking, onUrlChange, 
         </div>
       )}
 
+      {fresh && fresh.reachable && !fresh.local && (
+        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', color: 'var(--color-risk)' }}>
+          <ShieldAlert size={18} />
+          <span>This server is not on this Mac: meeting transcripts and notes are sent to it.</span>
+        </div>
+      )}
+
+      {fresh?.exposed_at && (
+        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', color: 'var(--color-risk)' }}>
+          <ShieldAlert size={18} />
+          <span>
+            {fresh.provider_name || 'The LLM server'} is also reachable from your network at {fresh.exposed_at}, so other
+            devices can use it. Unless you need that, limit it to this Mac (Ollama: unset <code>OLLAMA_HOST</code>;
+            LM Studio: turn off "Serve on Local Network").
+          </span>
+        </div>
+      )}
+
       {fresh && fresh.models.length > 0 && (
         <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
           Available models: {fresh.models.map(m => `${m.id}${m.loaded ? ' (loaded)' : ''}${gb(m.size_bytes)}`).join(', ')}
@@ -107,5 +128,5 @@ export default function LlmConnectionPanel({ url, model, thinking, onUrlChange, 
 
 function emptyStatus(url: string): LlmStatus {
   return { url: url.trim().replace(/\/+$/, ''), reachable: false, provider: null, provider_name: null,
-    models: [], model: null, model_source: 'auto', ok: false, message: '' };
+    models: [], model: null, model_source: 'auto', ok: false, message: '', local: true, exposed_at: null };
 }

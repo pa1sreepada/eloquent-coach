@@ -14,6 +14,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field
 from urllib.parse import urlparse
 
+import llm_provider
 import transcribe_cpp
 
 
@@ -126,5 +127,6 @@ def read_power_state() -> PowerState:
 
 
 def llm_is_local(llm_api_url: str) -> bool:
+    """Shares this Mac's GPU (0.0.0.0 also connects to this machine)."""
     host = (urlparse(llm_api_url).hostname or "").lower()
-    return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
+    return host == "0.0.0.0" or llm_provider.is_loopback_host(host)

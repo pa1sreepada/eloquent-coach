@@ -75,6 +75,7 @@ class RealtimeConfig:
     llm_model: str | None = None
     llm_thinking: bool = False       # model reasoning ("think"); off keeps cards fast
     llm_streaming: bool = True       # stream cards: the headline shows before the body is written
+    llm_allow_remote: bool = False   # user opted in to sending transcripts to another machine
     asr_profile: str = "auto"        # auto (planner decides) | ultra | low | balanced | accurate
     asr_backend: str = "auto"        # auto (planner decides per channel) | gpu | cpu
     asr_adaptive: bool = True        # runtime governor steps profiles down/up on measured lag
@@ -95,6 +96,7 @@ class RealtimeConfig:
             llm_model=c.get("llm_model") or None,
             llm_thinking=llm_provider.parse_bool(c.get("llm_thinking")),
             llm_streaming=llm_provider.parse_bool(c.get("llm_streaming"), default=True),
+            llm_allow_remote=llm_provider.parse_bool(c.get("llm_allow_remote")),
             asr_profile=c.get("asr_profile", "auto"),
             asr_backend=normalize_backend(c.get("asr_backend", "auto")),
             asr_adaptive=(c.get("asr_adaptive", "true").lower() not in ("false", "0", "off")),
@@ -267,7 +269,7 @@ class MeetingSession:
             self.plan, self.asr, cal=rt.cal, emit=self._publish_status,
             on_severe=lambda: self.coach.yield_gpu(), enabled=cfg.asr_adaptive)
         self.llm = OpenAICompatClient(cfg.llm_api_url, model=cfg.llm_model, thinking=cfg.llm_thinking,
-                                      stream=cfg.llm_streaming)
+                                      stream=cfg.llm_streaming, allow_remote=cfg.llm_allow_remote)
         self.coach = CoachingEngine(
             self.llm, self._emit, mode=meta["mode"], agenda=meta["agenda"], prep_notes=meta["prep_notes"],
             instructions=cfg.coach_instructions, telemetry=SpeechTelemetry(fillers=cfg.filler_words),

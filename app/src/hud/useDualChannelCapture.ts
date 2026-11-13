@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { apiSocket } from '../api'
 
 /**
  * Mic → L ("Me"), system loopback → R ("Participant"), 16 kHz float32 interleaved,
@@ -73,7 +74,7 @@ export function useDualChannelCapture(muted: boolean) {
     node.port.postMessage({ muted })
     merger.connect(node)
 
-    const ws = new WebSocket(opts.url ?? `ws://127.0.0.1:8000/ws/audio/${meetingId}`)
+    const ws = apiSocket(opts.url ?? `ws://127.0.0.1:8000/ws/audio/${meetingId}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
     ws.onopen = () => onStatus?.('connected')

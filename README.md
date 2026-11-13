@@ -94,7 +94,7 @@ Then open **Settings → Audio Devices** and pick your microphone and the loopba
 
 ### 2. Connect an LLM
 
-Start LM Studio's local server (or Ollama) with a small instruct model — e.g. `google/gemma-4-e4b`, Qwen 3 4B/8B, or Llama 3.x 8B. In **Settings → Local LLM Engine** pick **LM Studio** or **Ollama** (or type any OpenAI-compatible URL) and click **Test connection**: the app detects the server, lists its models and runs a real request. Leave *Model ID* blank to use whichever model the server already has loaded. On a 16 GB Mac keep the model around 4–9B; larger models may not fit next to live transcription. **Enable model thinking / reasoning** is off by default: reasoning models (Qwen 3, Gemma 4, ...) answer directly, which keeps live cards fast. Turning it on sends `think: true` to Ollama and drops `reasoning_effort: "none"` for LM Studio. Answers are slower and get extra token budget. **Stream live coaching cards** is on by default: each card's headline appears on the HUD as soon as the model has written it, and the supporting detail fills in a moment later. This saves several seconds with larger models. Cards are saved only in their final form, and servers that reject streaming fall back to normal requests automatically. *Coaching Instructions* (optional) lets you add personal preferences, such as "push me to lead with the answer", to every live coaching request. When the LLM runs on the same GPU as the ASR, the adaptive planner automatically reserves headroom for it.
+Start LM Studio's local server (or Ollama) with a small instruct model — e.g. `google/gemma-4-e4b`, Qwen 3 4B/8B, or Llama 3.x 8B. In **Settings → Local LLM Engine** pick **LM Studio** or **Ollama** (or type any OpenAI-compatible URL) and click **Test connection**: the app detects the server, lists its models and runs a real request. Leave *Model ID* blank to use whichever model the server already has loaded. On a 16 GB Mac keep the model around 4–9B; larger models may not fit next to live transcription. **Enable model thinking / reasoning** is off by default: reasoning models (Qwen 3, Gemma 4, ...) answer directly, which keeps live cards fast. Turning it on sends `think: true` to Ollama and drops `reasoning_effort: "none"` for LM Studio. Answers are slower and get extra token budget. **Stream live coaching cards** is on by default: each card's headline appears on the HUD as soon as the model has written it, and the supporting detail fills in a moment later. This saves several seconds with larger models. Cards are saved only in their final form, and servers that reject streaming fall back to normal requests automatically. *Coaching Instructions* (optional) lets you add personal preferences, such as "push me to lead with the answer", to every live coaching request. When the LLM runs on the same GPU as the ASR, the adaptive planner automatically reserves headroom for it. Only a server on this Mac (`127.0.0.1` / `localhost`) is accepted unless you turn on **Allow an LLM server on another machine**; servers outside your local network must then use `https://`. If your server needs an API key (e.g. LM Studio's *Require API key*), enter it under **LLM server API key**; it's kept in the Keychain. **Test connection** also warns when Ollama or LM Studio is reachable from your network, not just this Mac.
 
 ### 3. Run a meeting
 
@@ -159,7 +159,9 @@ Environment variables:
 
 | Variable | Purpose |
 |---|---|
-| `ELOQUENT_STATE_DIR` | Where calibration data is cached (default `~/.eloquent-coach`) |
+| `ELOQUENT_STATE_DIR` | Where calibration data and the API token file live (default `~/.eloquent-coach`) |
+| `ELOQUENT_API_TOKEN` | API token for a backend you start yourself (otherwise read from, or created in, `~/.eloquent-coach/api-token`) |
+| `ELOQUENT_LLM_API_KEY` | LLM server API key (overrides the one saved in Settings) |
 | `ELOQUENT_ASR_MODEL` / `ELOQUENT_VAD_MODEL` | Use local GGUF files instead of downloading from Hugging Face |
 | `ELOQUENT_MODELS_DIR` | Folder checked for model files before Hugging Face (default `backend/models/`) |
 | `ELOQUENT_PYTHON` | Python interpreter Electron uses to start the backend (default `backend/venv`) |
@@ -176,7 +178,10 @@ Environment variables:
 * Encryption protects the files at rest. It doesn't stop someone using your unlocked account through the app, and Markdown exports you save are plain text.
 * `backend/eloquent_coach.db` (and the legacy `backend/transcripts/` folder from older versions) are git-ignored — **never commit them**.
 * **Settings → Data & Storage** shows the database location, encryption and key store, total size, rows per kind of data, the date range of meetings and any imported legacy transcript files. **Show in Finder** reveals the database file.
-* The backend binds to `127.0.0.1` only, and CORS is restricted to the local app.
+* **Only the app can use the backend.** It binds to `127.0.0.1` only. At each launch the app creates a random 256-bit token; every HTTP request must send it as `Authorization: Bearer …` and every WebSocket as a subprotocol, so web pages in your browser and other programs can't read your meetings through `127.0.0.1:8000`. Requests whose `Host` isn't `127.0.0.1`/`localhost` (DNS rebinding) and WebSockets from other origins are refused. The token is also written to the owner-only `~/.eloquent-coach/api-token` so a backend you start by hand works; any program running as you can read that file, so it guards against web pages and other users, not malware in your own account.
+* **LLM traffic stays on this Mac by default** (see *Connect an LLM*): remote servers need an explicit opt-in (and `https://` outside your network), credentials in the URL are rejected, LLM requests never follow redirects, and live coaching cards aren't written to the logs.
+* **Desktop app hardening:** all windows run sandboxed with context isolation, can't open new windows or navigate away from the app (links open in your browser), and only the app's own pages get microphone and system-audio access. Packaged builds add a Content-Security-Policy that limits the UI to its own files and the local backend, the hardened runtime, and Electron fuses (no `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` or inspector flags; asar integrity checked).
+* **Model files are pinned:** the speech models are downloaded from a fixed Hugging Face commit and their SHA-256 is checked before every load, including files you import.
 * The only network calls are model downloads (Hugging Face, first run) and your configured LLM endpoint.
 
 ---
@@ -205,9 +210,10 @@ python3 scripts/update_deps.py --skip-build   # same, without the production-bui
 ```bash
 # backend
 cd backend
-venv/bin/python -m uvicorn main:app --port 8000 --reload   # run the API alone
+venv/bin/python -m uvicorn main:app --port 8000 --reload   # run the API alone (token: ~/.eloquent-coach/api-token)
 venv/bin/python tests/test_coach.py                          # telemetry, triggers, coaching engine
 venv/bin/python tests/test_adaptive.py                       # planner + governor (ASR_E2E=1 adds a live GPU→CPU swap)
+venv/bin/python tests/test_api_auth.py                       # API token, Host/Origin checks, LLM URL policy
 venv/bin/python tests/bench.py balanced                      # ASR at real-time pace
 venv/bin/python tests/e2e_ws.py <meeting_id> 1 8000          # end-to-end over the WebSocket API
 
@@ -220,6 +226,7 @@ npm run build
 ```
 backend/
   main.py            REST API: meetings, settings, synthesis, reports
+  api_auth.py        per-launch API token, Host and WebSocket origin checks
   realtime.py        WebSocket audio/events, MeetingSession, ASR runtime
   asr_service.py     VAD + Parakeet streaming per channel
   adaptive.py        hardware-aware planner + runtime governor

@@ -46,23 +46,56 @@ def _has_data(path: str) -> bool:
     return os.path.isfile(path) and os.path.getsize(path) > 0
 
 
-def _keyring_get() -> str | None:
+def _keyring_get(account: str = KEYRING_ACCOUNT) -> str | None:
     try:
         import keyring
-        return keyring.get_password(KEYRING_SERVICE, KEYRING_ACCOUNT)
+        return keyring.get_password(KEYRING_SERVICE, account)
     except Exception as err:  # noqa: BLE001 - no usable credential store
         logger.warning(f"OS credential store unavailable: {err}")
         return None
 
 
-def _keyring_set(key: str) -> bool:
+def _keyring_set(key: str, account: str = KEYRING_ACCOUNT) -> bool:
     try:
         import keyring
-        keyring.set_password(KEYRING_SERVICE, KEYRING_ACCOUNT, key)
-        return keyring.get_password(KEYRING_SERVICE, KEYRING_ACCOUNT) == key
+        keyring.set_password(KEYRING_SERVICE, account, key)
+        return keyring.get_password(KEYRING_SERVICE, account) == key
     except Exception as err:  # noqa: BLE001
-        logger.warning(f"Could not save the database key to the OS credential store: {err}")
+        logger.warning(f"Could not save '{account}' to the OS credential store: {err}")
         return False
+
+
+def _write_private(path: Path, text: str) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+
+
+def get_secret(account: str) -> str | None:
+    """A small secret (e.g. the LLM server's API key): OS credential store, else an owner-only file."""
+    value = _keyring_get(account)
+    fallback = STATE_DIR / account
+    if not value and fallback.is_file():
+        value = fallback.read_text().strip()
+    return value or None
+
+
+def set_secret(account: str, value: str | None) -> None:
+    """Store, or with a falsy value delete, a secret."""
+    fallback = STATE_DIR / account
+    if not value:
+        try:
+            import keyring
+            keyring.delete_password(KEYRING_SERVICE, account)
+        except Exception:  # noqa: BLE001 - not stored there
+            pass
+        _remove(str(fallback))
+        return
+    if _keyring_set(value, account):
+        _remove(str(fallback))
+    else:
+        _write_private(fallback, value)
 
 
 def key_store() -> str:
@@ -100,10 +133,7 @@ def database_key(db_path: str) -> str:
             f"(service '{KEYRING_SERVICE}', account '{KEYRING_ACCOUNT}'). Restore the key or set ELOQUENT_DB_KEY.")
     key = secrets.token_hex(32)
     if not _keyring_set(key):
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
-        fd = os.open(FALLBACK_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(key)
+        _write_private(FALLBACK_KEY_FILE, key)
         logger.warning(f"No OS credential store; the database key was saved to {FALLBACK_KEY_FILE} (owner-only).")
     return key
 

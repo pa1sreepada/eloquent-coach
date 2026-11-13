@@ -19,7 +19,8 @@ from typing import Awaitable, Callable, Literal
 import numpy as np
 import transcribe_cpp
 
-from model_files import ASR_FILE, ASR_REPO, MODELS_DIR, VAD_FILE, VAD_REPO, use_system_trust_store
+from model_files import (ASR_FILE, ASR_REPO, MODEL_REVISIONS, MODELS_DIR, VAD_FILE, VAD_REPO, use_system_trust_store,
+                         verify_model_file)
 
 logger = logging.getLogger(__name__)
 
@@ -51,17 +52,19 @@ def resolve_model_paths(asr_path: str | None = None, vad_path: str | None = None
     from huggingface_hub import hf_hub_download, try_to_load_from_cache
 
     def fetch(repo: str, name: str) -> str:
+        revision = MODEL_REVISIONS[repo]
         local = os.path.join(MODELS_DIR, name)
         if os.path.isfile(local):
-            return local
-        cached = try_to_load_from_cache(repo, name)
+            return verify_model_file(local, name)
+        cached = try_to_load_from_cache(repo, name, revision=revision)
         if isinstance(cached, str):
-            return cached
+            return verify_model_file(cached, name)
         use_system_trust_store()
         try:
-            return hf_hub_download(repo, name)
+            path = hf_hub_download(repo, name, revision=revision)
         except Exception as e:  # noqa: BLE001 - auth/403/network/SSL all need the same remedy
             raise RuntimeError(IMPORT_HINT.format(name=name, dir=MODELS_DIR) + f"\nCause: {e}") from e
+        return verify_model_file(path, name)
 
     asr = asr_path or os.environ.get("ELOQUENT_ASR_MODEL") or fetch(ASR_REPO, ASR_FILE)
     vad = vad_path or os.environ.get("ELOQUENT_VAD_MODEL") or fetch(VAD_REPO, VAD_FILE)

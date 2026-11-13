@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { registerHudIpc, unregisterHudShortcuts } from './hudWindow'
 import { registerPrompterIpc, unregisterPrompterShortcuts } from './prompterWindow'
+import { API_TOKEN, applySecurityPolicy, isAppUrl, writeApiTokenFile } from './security'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -63,7 +64,7 @@ function startPythonBackend() {
   
   backendProcess = spawn(pythonPath, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], {
     cwd: path.dirname(scriptPath),
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env: { ...process.env, PYTHONUNBUFFERED: '1', ELOQUENT_API_TOKEN: API_TOKEN },
   })
   backendProcess.on('exit', () => { backendProcess = null })
   
@@ -87,6 +88,10 @@ function createWindow() {
     icon: path.join(VITE_PUBLIC, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
     },
     width: 1200,
     height: 800,
@@ -150,8 +155,12 @@ app.whenReady().then(() => {
   // (Core Audio taps on macOS 14.2+), so no BlackHole is needed. The requesting frame stands in as the
   // required video source (no screen capture); the renderer drops it. macOS asks once for
   // Screen & System Audio Recording — for `npm run dev`, the permission belongs to the terminal app.
+  applySecurityPolicy(VITE_DEV_SERVER_URL, DIST)
+  writeApiTokenFile()
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    callback({ video: request.frame ?? undefined, audio: 'loopback' })
+    // Only the app's own pages get system audio; anything else is refused (empty callback).
+    if (!request.frame || !isAppUrl(request.frame.url)) return callback({})
+    callback({ video: request.frame, audio: 'loopback' })
   }, { useSystemPicker: false })
   registerHudIpc(path.join(__dirname, 'preload.cjs'), VITE_DEV_SERVER_URL, DIST)
   registerPrompterIpc(path.join(__dirname, 'preload.cjs'), VITE_DEV_SERVER_URL, DIST)

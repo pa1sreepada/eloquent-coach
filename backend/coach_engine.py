@@ -164,18 +164,26 @@ class OpenAICompatClient:
     THINKING_TIMEOUT_S = 60.0  # reasoning adds hundreds of tokens before the card
 
     def __init__(self, base_url: str, model: str | None = None, timeout_s: float = 20.0,
-                 thinking: bool = False, stream: bool = False):
+                 thinking: bool = False, stream: bool = False, allow_remote: bool = False):
         self.base_url = base_url.rstrip("/")
+        try:
+            llm_provider.check_url(self.base_url, allow_remote)
+            self._url_error: str | None = None
+        except llm_provider.LlmError as err:
+            self._url_error = str(err)
         self._model = model
         self.thinking = thinking   # off by default: cards are latency-critical
         self.stream = stream       # stream tokens so a card's headline can show before its body is written
-        self._http = httpx.AsyncClient(timeout=max(timeout_s, self.THINKING_TIMEOUT_S) if thinking else timeout_s)
+        self._http = httpx.AsyncClient(timeout=max(timeout_s, self.THINKING_TIMEOUT_S) if thinking else timeout_s,
+                                       **llm_provider.client_kwargs())
         self._reasoning_fields_ok = True   # dropped if the server rejects them
         self._structured = True     # JSON-schema constrained output, when the server supports it
         self.provider: str | None = None
 
     async def model_id(self) -> str:
         """Configured model, else one the server already has loaded (Ollama, LM Studio or generic)."""
+        if self._url_error:
+            raise llm_provider.LlmError(self._url_error)
         if self.provider is None:
             self.provider = await llm_provider.detect_provider(self._http, self.base_url)
         if self._model is None:
@@ -522,7 +530,8 @@ class CoachingEngine:
         if not headline or len(headline.split()) > MAX_HEADLINE_WORDS:
             return None
         if not is_grounded(f"{headline} {body}", sources):
-            logger.info("dropped ungrounded card: %s", headline)
+            logger.info("dropped ungrounded card")
+            logger.debug("ungrounded card headline: %s", headline)   # meeting content: debug only
             return None
         if self._is_duplicate(headline) and trigger != "ask":   # an explicit ask always gets its answer
             return None
@@ -544,8 +553,9 @@ class CoachingEngine:
             if card is None:
                 return
             emitted += 1
-            logger.info("card %s/%s in %.0fms%s: %s", trigger, card.kind, (time.perf_counter() - t) * 1000,
-                        " (streamed headline)" if partial else "", card.headline)
+            logger.info("card %s/%s in %.0fms%s", trigger, card.kind, (time.perf_counter() - t) * 1000,
+                        " (streamed headline)" if partial else "")
+            logger.debug("card headline: %s", card.headline)
             if partial:
                 pending.add(i)
                 await self.emit({**card.to_json(), "partial": True})

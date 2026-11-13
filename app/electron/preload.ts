@@ -10,6 +10,8 @@ function subscribe<T>(channel: string, cb: (v: T) => void) {
 
 // Narrow, allowlisted API — no raw ipcRenderer in the renderer.
 contextBridge.exposeInMainWorld('eloquent', {
+  // Per-launch backend token; main only hands it to the app's own pages.
+  apiToken: ipcRenderer.sendSync('api:token') as string,
   showHud: (meetingId: number, script?: string) => ipcRenderer.send('hud:show', meetingId, script ?? ''),
   hideHud: () => ipcRenderer.send('hud:hide'),
   setLiveMeeting: (meetingId: number | null) => ipcRenderer.send('meeting:live', meetingId),

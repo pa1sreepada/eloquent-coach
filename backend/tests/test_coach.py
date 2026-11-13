@@ -496,7 +496,7 @@ def test_thinking_setting():
         for thinking in (False, True):
             transport, bodies = make("ollama")
             client = LMStudioClient("http://127.0.0.1:11434/v1")
-            client._config = lambda t=thinking: ("http://127.0.0.1:11434/v1", "m", t)
+            client._config = lambda t=thinking: ("http://127.0.0.1:11434/v1", "m", t, False)
             real = httpx.AsyncClient
             httpx.AsyncClient = lambda **kw: real(transport=transport)
             try:

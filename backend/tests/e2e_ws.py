@@ -7,13 +7,16 @@ def load(p):
 import os; B=os.path.dirname(os.path.abspath(__file__))+"/"; me, them = load(B+"me.wav"), load(B+"them.wav")
 rep = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 PORT = sys.argv[3] if len(sys.argv) > 3 else "8000"
+sys.path.insert(0, os.path.dirname(B[:-1]))
+import api_auth  # noqa: E402 - the running backend's token (env, else ~/.eloquent-coach/api-token)
+AUTH = {"subprotocols": ["eloquent", "token." + (os.environ.get("ELOQUENT_API_TOKEN") or api_auth._file_token() or "")]}
 gap = np.zeros(16000, np.float32)
 L = np.concatenate([np.concatenate([me, gap, np.zeros(len(them), np.float32), gap]) for _ in range(rep)] + [gap, gap])
 R = np.concatenate([np.concatenate([np.zeros(len(me), np.float32), gap, them, gap]) for _ in range(rep)] + [gap, gap])
 async def main():
     mid = sys.argv[1]; events = []
-    async with websockets.connect(f"ws://127.0.0.1:{PORT}/ws/events/{mid}") as ev, \
-               websockets.connect(f"ws://127.0.0.1:{PORT}/ws/audio/{mid}", max_size=None) as au:
+    async with websockets.connect(f"ws://127.0.0.1:{PORT}/ws/events/{mid}", **AUTH) as ev, \
+               websockets.connect(f"ws://127.0.0.1:{PORT}/ws/audio/{mid}", max_size=None, **AUTH) as au:
         t0 = time.perf_counter()
         async def rx():
             async for m in ev: events.append((time.perf_counter() - t0, json.loads(m)))

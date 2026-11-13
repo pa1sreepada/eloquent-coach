@@ -10,9 +10,30 @@
   "build": {
     "appId": "com.eloquentcoach.app",
     "productName": "Eloquent Coach",
-    "mac": { "icon": "build/icon.icns", "category": "public.app-category.productivity" },
-    "win": { "icon": "build/icon.png" },
-    "linux": { "icon": "build/icon.png" }
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Eloquent Coach transcribes your voice locally to coach you during meetings."
+      }
+    },
+    "win": {
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "icon": "build/icon.png"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    }
   },
   "engines": {
     "node": ">=22.18"

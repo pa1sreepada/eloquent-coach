@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { CoachEvent } from './protocol'
+import { apiSocket } from '../api'
 
 const API = 'ws://127.0.0.1:8000'
 
@@ -16,7 +17,7 @@ export function useCoachEvents(meetingId: number | null, onEvent: (e: CoachEvent
     let closed = false
 
     const connect = () => {
-      ws = new WebSocket(`${API}/ws/events/${meetingId}`)
+      ws = apiSocket(`${API}/ws/events/${meetingId}`)
       ws.onopen = () => { retry = 0 }
       ws.onmessage = (m) => {
         try { handler.current(JSON.parse(m.data) as CoachEvent) } catch { /* ignore malformed */ }

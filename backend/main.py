@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from database import (init_db, get_db, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics,
                       LegacyTranscriptFile, DB_PATH)
 import secure_store
+import api_auth
 from lm_studio_client import LMStudioClient
 from coach_engine import OpenAICompatClient
 import llm_provider
@@ -28,13 +29,15 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Eloquent Coach API")
 
-# Renderer is served from the Vite dev server or file:// (origin "null") in packaged builds.
+# Every request needs the app's per-launch token and a loopback Host (api_auth). CORS is outermost so
+# the renderer can read error responses; it is not the security boundary.
+app.add_middleware(api_auth.ApiGuard)
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^(http://(localhost|127\.0\.0\.1)(:\d+)?|null|file://.*)$",
+    allow_origin_regex=api_auth.APP_ORIGIN.pattern,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 app.include_router(realtime.router)
 app.include_router(prompter.router)
@@ -51,6 +54,7 @@ def init_default_settings(db: Session):
         "llm_model": "",
         "llm_thinking": "false",
         "llm_streaming": "true",
+        "llm_allow_remote": "false",
         "coach_instructions": "",
         "asr_profile": "auto",
         "asr_backend": "auto",
@@ -68,6 +72,7 @@ def init_default_settings(db: Session):
 @app.on_event("startup")
 async def on_startup():
     global lm_client, metrics_engine
+    api_auth.ensure_token()
     init_db()
     db = SessionLocal()
     try:
@@ -88,6 +93,7 @@ class SettingsUpdate(BaseModel):
     llm_model: str = ""
     llm_thinking: str = "false"
     llm_streaming: str = "true"
+    llm_allow_remote: str = "false"
     coach_instructions: str = ""
     asr_profile: str = "auto"
     asr_backend: str = "auto"
@@ -99,11 +105,17 @@ class SettingsUpdate(BaseModel):
 @app.get("/settings")
 def get_settings(db: Session = Depends(get_db)):
     config = {c.key: c.value for c in db.query(AppConfig).all()}
+    config["llm_api_key_set"] = bool(llm_provider.api_key())
     return config
 
 @app.put("/settings")
 def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
     updates = settings.model_dump()
+    updates["llm_allow_remote"] = "true" if llm_provider.parse_bool(updates["llm_allow_remote"]) else "false"
+    try:
+        updates["llm_api_url"] = llm_provider.check_url(updates["llm_api_url"], updates["llm_allow_remote"] == "true")
+    except llm_provider.LlmError as err:
+        raise HTTPException(400, str(err))
     updates["asr_backend"] = realtime.normalize_backend(updates["asr_backend"])
     for k, v in updates.items():
         conf = db.query(AppConfig).filter(AppConfig.key == k).first()
@@ -112,25 +124,47 @@ def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
         else:
             db.add(AppConfig(key=k, value=v))
     db.commit()
-    lm_client.base_url = settings.llm_api_url
+    if lm_client is not None:
+        lm_client.base_url = updates["llm_api_url"]
     # ASR/coach settings are read per meeting by realtime.MeetingSession.
     return {"status": "success", "message": "Settings updated"}
 
+class ApiKeyUpdate(BaseModel):
+    api_key: str | None = None
+
+
+@app.put("/llm/api-key")
+def set_llm_api_key(body: ApiKeyUpdate):
+    """Bearer token for the LLM server (optional). Kept in the OS credential store, never returned."""
+    key = (body.api_key or "").strip()
+    if len(key) > 4096 or any(c in key for c in "\r\n"):
+        raise HTTPException(400, "Invalid API key.")
+    secure_store.set_secret(llm_provider.API_KEY_ACCOUNT, key or None)
+    return {"llm_api_key_set": bool(llm_provider.api_key())}
+
+
 @app.get("/llm/status")
 async def llm_status(url: str | None = None, model: str | None = None, test: bool = False,
-                     thinking: bool | None = None, db: Session = Depends(get_db)):
+                     thinking: bool | None = None, allow_remote: bool | None = None, db: Session = Depends(get_db)):
     """Which server is at the URL (Ollama / LM Studio / generic), its models, and optionally a real test call.
     Defaults to the saved settings; pass url/model to check values before saving."""
-    config = {c.key: c.value for c in db.query(AppConfig).filter(AppConfig.key.in_(("llm_api_url", "llm_model", "llm_thinking")))}
+    config = {c.key: c.value for c in db.query(AppConfig).filter(
+        AppConfig.key.in_(("llm_api_url", "llm_model", "llm_thinking", "llm_allow_remote")))}
     if thinking is None:
         thinking = llm_provider.parse_bool(config.get("llm_thinking"))
+    if allow_remote is None:
+        allow_remote = llm_provider.parse_bool(config.get("llm_allow_remote"))
     url = (url if url is not None else config.get("llm_api_url") or "").strip().rstrip("/")
     model = (model if model is not None else config.get("llm_model") or "").strip()
-    if not re.match(r"^https?://", url):
-        raise HTTPException(400, "API Base URL must start with http:// or https://")
+    try:
+        url = llm_provider.check_url(url, allow_remote)
+    except llm_provider.LlmError as err:
+        raise HTTPException(400, str(err))
     out = {"url": url, "reachable": False, "provider": None, "provider_name": None, "models": [],
-           "model": model or None, "model_source": "configured" if model else "auto", "ok": False, "message": ""}
-    async with httpx.AsyncClient() as client:
+           "model": model or None, "model_source": "configured" if model else "auto", "ok": False, "message": "",
+           "local": llm_provider.is_local_url(url), "exposed_at": None}
+    out["exposed_at"] = await asyncio.to_thread(llm_provider.exposed_on_network, url)
+    async with httpx.AsyncClient(**llm_provider.client_kwargs()) as client:
         try:
             await client.get(f"{url}/models", timeout=llm_provider.PROBE_TIMEOUT_S)
         except httpx.HTTPError as err:
@@ -151,7 +185,7 @@ async def llm_status(url: str | None = None, model: str | None = None, test: boo
     if not test:
         out["ok"] = True
         return out
-    probe = OpenAICompatClient(url, model=out["model"], thinking=thinking)
+    probe = OpenAICompatClient(url, model=out["model"], thinking=thinking, allow_remote=allow_remote)
     probe.provider = provider
     try:
         await probe.warmup()

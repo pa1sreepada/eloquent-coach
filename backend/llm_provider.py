@@ -5,9 +5,13 @@ window live in server-specific APIs. This module hides those differences.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
+import os
 import re
+import socket
 from dataclasses import asdict, dataclass
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -21,6 +25,110 @@ PROVIDER_NAMES = {OLLAMA: "Ollama", LMSTUDIO: "LM Studio", GENERIC: "LLM server"
 DEFAULT_URLS = {OLLAMA: "http://127.0.0.1:11434/v1", LMSTUDIO: "http://127.0.0.1:1234/v1"}
 _PORT_HINTS = {":11434": OLLAMA, ":1234": LMSTUDIO}
 PROBE_TIMEOUT_S = 3.0
+
+
+API_KEY_ACCOUNT = "llm-api-key"
+
+
+def _ip(host: str):
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
+def is_loopback_host(host: str) -> bool:
+    host = (host or "").lower().strip("[]")
+    ip = _ip(host)
+    return host == "localhost" or bool(ip and ip.is_loopback)
+
+
+def _is_private_host(host: str) -> bool:
+    host = (host or "").lower().strip("[]")
+    ip = _ip(host)
+    if ip:
+        return (ip.is_private or ip.is_link_local) and not ip.is_unspecified
+    return host.endswith(".local") or host.endswith(".lan") or host.endswith(".home.arpa")
+
+
+def check_url(url: str, allow_remote: bool) -> str:
+    """The URL if it's a safe LLM endpoint, else LlmError with the reason.
+    Transcripts are sent to this server, so anything off this Mac must be opted into explicitly,
+    and a server on the internet must use https."""
+    url = (url or "").strip().rstrip("/")
+    try:
+        parts = urlsplit(url)
+        parts.port   # raises on a malformed port
+    except ValueError:
+        raise LlmError("API Base URL is not a valid URL.")
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise LlmError("API Base URL must start with http:// or https:// and include a host.")
+    if parts.username or parts.password or "@" in parts.netloc:
+        raise LlmError("Don't put credentials in the API Base URL; use the API key field.")
+    if parts.query or parts.fragment:
+        raise LlmError("API Base URL can't contain a query string or fragment.")
+    host = parts.hostname
+    if _ip(host.strip("[]")) is not None and _ip(host.strip("[]")).is_unspecified:
+        raise LlmError(f"{host} is a listen address, not a server address; use 127.0.0.1.")
+    if is_loopback_host(host):
+        return url
+    if not allow_remote:
+        raise LlmError(f"{host} is not on this Mac. Meeting transcripts would be sent there; "
+                       "turn on 'Allow an LLM server on another machine' to use it.")
+    if parts.scheme != "https" and not _is_private_host(host):
+        raise LlmError("A server outside your local network must use https:// so transcripts are encrypted in transit.")
+    return url
+
+
+def is_local_url(url: str) -> bool:
+    return is_loopback_host(urlsplit(url or "").hostname or "")
+
+
+def api_key() -> str | None:
+    env = os.environ.get("ELOQUENT_LLM_API_KEY", "").strip()
+    if env:
+        return env
+    try:
+        import secure_store
+        return secure_store.get_secret(API_KEY_ACCOUNT)
+    except Exception as err:  # noqa: BLE001
+        logger.warning("LLM API key unavailable: %s", err)
+        return None
+
+
+def client_kwargs() -> dict:
+    """httpx.AsyncClient options for every LLM request: the API key (if any), and no redirects,
+    so a server can't bounce transcripts (or the key) to another host."""
+    key = api_key()
+    return {"headers": {"Authorization": f"Bearer {key}"} if key else {}, "follow_redirects": False}
+
+
+def _lan_ip() -> str | None:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))   # TEST-NET address: picks the outbound interface, sends nothing
+            ip = s.getsockname()[0]
+        return None if ip.startswith("127.") else ip
+    except OSError:
+        return None
+
+
+def exposed_on_network(url: str) -> str | None:
+    """For a loopback URL: this Mac's LAN address if the same server port also answers there, i.e.
+    other machines on the network can use the LLM server too (e.g. OLLAMA_HOST=0.0.0.0, or
+    LM Studio's 'Serve on Local Network')."""
+    parts = urlsplit(url)
+    if not is_loopback_host(parts.hostname or ""):
+        return None
+    ip = _lan_ip()
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    if not ip:
+        return None
+    try:
+        with socket.create_connection((ip, port), timeout=0.3):
+            return f"{ip}:{port}"
+    except OSError:
+        return None
 
 
 class LlmError(RuntimeError):

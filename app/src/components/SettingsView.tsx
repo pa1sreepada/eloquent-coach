@@ -10,6 +10,7 @@ interface Settings extends AsrSettings {
   llm_model: string;
   llm_thinking: 'true' | 'false';
   llm_streaming: 'true' | 'false';
+  llm_allow_remote: 'true' | 'false';
   coach_instructions: string;
   filler_words: string;
   custom_jargon: string;
@@ -21,6 +22,7 @@ export default function SettingsView() {
     llm_model: '',
     llm_thinking: 'false',
     llm_streaming: 'true',
+    llm_allow_remote: 'false',
     coach_instructions: '',
     asr_profile: 'auto',
     asr_backend: 'auto',
@@ -31,6 +33,9 @@ export default function SettingsView() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [apiKeySet, setApiKeySet] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [apiKeyMessage, setApiKeyMessage] = useState('');
   
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedMic, setSelectedMic] = useState<string>('');
@@ -39,7 +44,8 @@ export default function SettingsView() {
   useEffect(() => {
     fetch('http://127.0.0.1:8000/settings')
       .then(res => res.json())
-      .then(data => {
+      .then(({ llm_api_key_set, ...data }) => {
+        setApiKeySet(!!llm_api_key_set);
         setSettings(prev => ({ ...prev, ...data }));
         setIsLoading(false);
       })
@@ -114,13 +120,32 @@ export default function SettingsView() {
         setSaveMessage('Settings saved successfully!');
         setTimeout(() => setSaveMessage(''), 3000);
       } else {
-        setSaveMessage('Failed to save settings.');
+        const detail = await response.json().then(d => d.detail).catch(() => '');
+        setSaveMessage(`Failed to save settings.${typeof detail === 'string' && detail ? ` ${detail}` : ''}`);
       }
     } catch (err) {
       console.error(err);
       setSaveMessage('Error connecting to backend.');
     }
     setIsSaving(false);
+  };
+
+  const saveApiKey = async (key: string) => {
+    setApiKeyMessage('');
+    try {
+      const res = await fetch('http://127.0.0.1:8000/llm/api-key', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: key }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail);
+      setApiKeySet(!!data.llm_api_key_set);
+      setApiKey('');
+      setApiKeyMessage(key ? 'API key saved to the Keychain.' : 'API key removed.');
+    } catch {
+      setApiKeyMessage('Could not save the API key.');
+    }
   };
 
   if (isLoading) {
@@ -171,9 +196,54 @@ export default function SettingsView() {
               url={settings.llm_api_url}
               model={settings.llm_model}
               thinking={settings.llm_thinking === 'true'}
+              allowRemote={settings.llm_allow_remote === 'true'}
               modelListId="llm-model-options"
               onUrlChange={url => setSettings(prev => ({ ...prev, llm_api_url: url }))}
             />
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={settings.llm_allow_remote === 'true'}
+                onChange={e => setSettings(prev => ({ ...prev, llm_allow_remote: e.target.checked ? 'true' : 'false' }))}
+              />
+              Allow an LLM server on another machine
+            </label>
+            <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
+              Off (recommended): only a server on this Mac (127.0.0.1 / localhost) is used, so transcripts never leave it.
+              On: meeting transcripts and notes are sent to the server at the URL above. Servers outside your local network must use https://.
+            </small>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
+              LLM server API key (optional) {apiKeySet && <span style={{ color: 'var(--color-structure)' }}>· saved</span>}
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                type="password"
+                autoComplete="off"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder={apiKeySet ? '•••••••• (saved in the Keychain)' : 'Only if your server requires one'}
+                style={{
+                  flex: 1,
+                  padding: '0.8rem',
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '8px',
+                  color: 'var(--text-primary)'
+                }}
+              />
+              <button type="button" className="btn" disabled={!apiKey.trim()} onClick={() => saveApiKey(apiKey.trim())}>Save key</button>
+              {apiKeySet && <button type="button" className="btn" onClick={() => saveApiKey('')}>Remove</button>}
+            </div>
+            <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
+              Sent as a Bearer token on every LLM request, e.g. when LM Studio's "Require API key" is on or a proxy protects Ollama.
+              Stored in the macOS Keychain, never in the database. {apiKeyMessage}
+            </small>
           </div>
 
           <div>
