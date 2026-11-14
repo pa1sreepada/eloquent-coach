@@ -18,7 +18,7 @@ keyring>=25,<26
 transcribe-cpp>=0.4.1,<0.5
 sherpa-onnx>=2.0.1,<3          # speaker embeddings for the voice profile (TitaNet-small)
 huggingface_hub>=0.34,<3        # model download + cache
-truststore>=0.10,<1             # use the OS trust store (corporate TLS proxies)
+truststore>=0.10.5,<1             # use the OS trust store (corporate TLS proxies)
 
 # Coaching telemetry
 vaderSentiment>=3.3.2,<4
