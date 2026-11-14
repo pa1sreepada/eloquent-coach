@@ -19,7 +19,7 @@ from statistics import mean
 
 from telemetry import COMMITMENT_MARKERS, DEFAULT_FILLERS, HEDGES, OBJECTION_MARKERS, WORD_RE, _phrase_regex
 
-ANALYSIS_VERSION = "3"
+ANALYSIS_VERSION = "4"
 ME_SPEAKERS = {"Me", "User"}   # "User" = transcripts from older versions
 
 # ---------------------------------------------------------------- meeting categories
@@ -85,10 +85,15 @@ class Line:
     start_ms: int | None = None
     end_ms: int | None = None
     ts: dt.datetime | None = None
+    voice: str | None = None     # mic lines checked against the voice profile: me | room | echo | uncertain
+
+    @property
+    def mic(self) -> bool:
+        return self.speaker in ME_SPEAKERS
 
     @property
     def mine(self) -> bool:
-        return self.speaker in ME_SPEAKERS
+        return self.mic and self.voice != "room"
 
 
 def _words(text: str) -> list[str]:
@@ -109,7 +114,10 @@ def find_echoes(lines: list[Line], window: int = 4, max_gap_s: float = 8.0) -> s
     """Indices of "Me" lines that repeat a nearby other-channel line (speaker bleed into the mic)."""
     echoes = set()
     for i, ln in enumerate(lines):
-        if not ln.mine:
+        if ln.voice == "echo" and ln.mic:
+            echoes.add(i)
+            continue
+        if not ln.mine or ln.voice == "me":
             continue
         mine = set(_words(ln.text))
         if len(mine) < 3:
@@ -128,10 +136,17 @@ def find_echoes(lines: list[Line], window: int = 4, max_gap_s: float = 8.0) -> s
     return echoes
 
 
-def attribution(me_words: int, other_words: int, echo_words: int, override: str | None = None) -> tuple[str, float]:
-    """(rating, confidence 0-1) that the "Me" lines are really the leader."""
+def attribution(me_words: int, other_words: int, echo_words: int, override: str | None = None,
+                voice_coverage: float = 0.0, voice_decided: float = 0.0) -> tuple[str, float]:
+    """(rating, confidence 0-1) that the "Me" lines are really the leader.
+
+    voice_coverage: share of mic words checked against the voice profile; voice_decided: share of those
+    that got a clear label (me/room/echo rather than uncertain).
+    """
     if override in ("verified", "mixed", "exclude"):
         return override, {"verified": 1.0, "mixed": 0.3, "exclude": 0.0}[override]
+    if voice_coverage >= 0.6 and me_words:
+        return ("verified" if voice_decided >= 0.6 else "mixed"), round(voice_decided, 2)
     total = me_words + other_words + echo_words
     if total == 0:
         return "mixed", 0.0
@@ -169,11 +184,17 @@ def analyze_meeting(lines: list[Line], fillers: list[str] | None = None, overrid
     """Per-meeting communication stats for the leader, plus room signals for the team radar."""
     filler_re = _phrase_regex(list(dict.fromkeys((fillers or []) + DEFAULT_FILLERS)))
     echoes = find_echoes(lines)
-    kept = [ln for i, ln in enumerate(lines) if i not in echoes]
+    # "uncertain" mic lines (mostly short acknowledgements) count for nobody.
+    kept = [ln for i, ln in enumerate(lines) if i not in echoes and ln.voice != "uncertain"]
     me_words = sum(len(_words(ln.text)) for ln in kept if ln.mine)
     other_words = sum(len(_words(ln.text)) for ln in kept if not ln.mine)
     echo_words = sum(len(_words(lines[i].text)) for i in echoes)
-    rating, conf = attribution(me_words, other_words, echo_words, override)
+    mic_words = sum(len(_words(ln.text)) for ln in lines if ln.mic)
+    voiced = sum(len(_words(ln.text)) for ln in lines if ln.mic and ln.voice)
+    decided = sum(len(_words(ln.text)) for ln in lines if ln.mic and ln.voice in ("me", "room", "echo"))
+    voice_coverage = voiced / mic_words if mic_words else 0.0
+    rating, conf = attribution(me_words, other_words, echo_words, override,
+                               voice_coverage, decided / voiced if voiced else 0.0)
 
     # Turns: consecutive lines from the same side, split at pauses (a mic that hears the whole room
     # never switches side, so without the split one "turn" would be the entire meeting).
@@ -257,6 +278,7 @@ def analyze_meeting(lines: list[Line], fillers: list[str] | None = None, overrid
         "attribution": rating,
         "confidence": conf,
         "echo_lines": len(echoes),
+        "voice_checked": round(voice_coverage, 2),
         "other_words": other_words,
         "stats": stats,
         "weakest": weak[:3],

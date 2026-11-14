@@ -32,6 +32,7 @@ const TABLE_LABELS: Record<string, string> = {
   metrics: 'Speaking metrics',
   legacy_transcript_files: 'Transcript files from older versions',
   app_config: 'Settings',
+  voice_profiles: 'Voice profile (voiceprint only, no audio)',
 };
 
 function formatBytes(bytes: number | null | undefined): string {

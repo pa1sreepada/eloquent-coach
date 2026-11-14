@@ -24,6 +24,7 @@ No audio, transcripts, or prompts leave your computer unless you point it at a r
 | **Teleprompter HUD** | Transparent, click-through, always-on-top overlay with a card deck that auto-advances with the conversation, plus a script aligner that follows your prepared talking points as you speak. |
 | **Voice-following teleprompter** | Write or import a script, then float it under your camera. It scrolls as you speak, keeps up with fillers, ad-libs and paraphrasing, and picks up wherever you rejoin. Every read-through is scored. See [Teleprompter](#teleprompter). |
 | **Prepare** | One-click pre-meeting brief (open commitments, history with each attendee, what they care about, likely pushback), AI rehearsal partners (skeptical CFO, board member, upset direct report, …) with a scorecard, and a stakeholder map that learns from your meetings. |
+| **Voice profile** | Read a short passage once and the app learns your voice (a 192-number voiceprint, never audio). Every mic line is then labelled **You**, **Room** (someone else near your mic), **Speaker echo** (your speakers leaking into the mic) or **You?**. Only your lines feed coaching and growth. See [Your voice profile](#voice). |
 | **Live decision tracker** | The HUD shows decisions, action items (with owners) and open questions as they are said. Two executive nudges join the coaching: *Invite the room* and *Commit to a position*. |
 | **Growth** | Your communication trend by meeting type (1:1, all-hands, vendor update, …): fillers, hedges, answer-first, open questions, decisiveness, *we vs I*, talk share. *Say it better* turns your weakest real lines into practice drills. See [Measuring your growth](#growth). |
 | **Leadership** | Commitment ledger (what you and others promised, with due dates and reminders), team radar (who is quiet, recurring concerns), weekly digest and a narrative check that tests a message against your recent meetings. |
@@ -155,13 +156,29 @@ You can also click any word to jump there. Text size, eye line, width, height, b
 - **During:** the HUD tracker strip lists decisions, actions and open questions. They are saved with the meeting and feed the commitment ledger.
 - **After:** commitments sync from the live tracker and the generated summary. **Leadership** keeps the ledger, team radar, weekly digest and narrative check.
 
-**How growth is measured when both voices can reach the mic.** The *Me* channel is the mic, so in a room or on speakers it also hears other people. The app does not try to tell voices apart. Instead it:
+**How growth is measured when both voices can reach the mic.** The *Me* channel is the mic, so in a room or on speakers it also hears other people. Without a voice profile the app does not tell voices apart. Instead it:
 
 1. removes mic lines that echo what the loopback channel heard;
 2. rates each meeting **verified** (mostly you), **mixed** or **excluded**, and lets you override the rating per meeting (Reports → People & attribution or Growth → Attribution);
 3. builds trends from verified meetings and rehearsals by default (*Include mixed* is optional), and compares each metric only within the same meeting type.
 
-Wear a headset for the meetings you want measured, and talk share and pacing become exact. Voice enrollment and voice rehearsal are future work.
+Wear a headset for the meetings you want measured, and talk share and pacing become exact. With a [voice profile](#voice), each mic line is also checked against your voice, which makes the ratings far more reliable (🎙 in Growth).
+
+### 6. Your voice profile
+<a id="voice"></a>
+
+Settings → **Voice profile** → **Record my voice**, then read the passage aloud for about 30 seconds with the mic you use in meetings. Press **Test** to check it recognises you. The first use downloads a 40 MB speaker model (NVIDIA TitaNet-small, pinned and checksum-verified).
+
+During meetings each finished mic line is compared with your voiceprint (about 0.1 s, off the live path):
+
+| Label | Meaning | Effect |
+|---|---|---|
+| **You** | Matches your voice | Coaching and growth |
+| **Room** | Someone else speaking near your mic | Treated as a participant |
+| **Speaker echo** | Loopback audio leaking from your speakers into the mic | Ignored (works even without a profile) |
+| **You?** | Too short or unclear to decide | Left out of growth metrics |
+
+If a label is wrong, edit the line in Reports. Only the voiceprint is stored, inside the encrypted database; delete it any time in Settings. Meeting audio is never saved, so meetings recorded before enrollment cannot be relabelled. Their attribution ratings still apply.
 
 LLM features (brief, rehearsal, digest, narrative check, rewrites) use your local LLM or, in hybrid mode, the external provider. While a meeting is live they wait unless the external provider is on, so they never slow live coaching. Everything else is computed locally without an LLM.
 
@@ -260,6 +277,8 @@ backend/
   telemetry.py       pacing, fillers, airtime, sentiment
   leadership.py      brief, rehearsal, stakeholders, commitments, growth, digest API
   leadership_analysis.py  deterministic growth metrics, attribution, live decision tracker
+  voice.py           voice profile API (enroll, test, delete)
+  voiceprint.py      speaker verification + speaker-echo detection
   tests/
 app/
   electron/          main process, HUD window, preload bridge
@@ -293,6 +312,7 @@ docs/refactor/       architecture & design notes
 
 * [Handy](https://github.com/cjpais/Handy) and [`transcribe-cpp`](https://pypi.org/project/transcribe-cpp/) for the local streaming ASR approach
 * NVIDIA Parakeet and Silero VAD models (via Hugging Face)
+* NVIDIA TitaNet-small speaker model (CC-BY-4.0) via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
 * Even Realities' *Conversate* and *Teleprompter* for interaction-design inspiration
 
 Model weights are downloaded from their publishers and are subject to their own licenses.

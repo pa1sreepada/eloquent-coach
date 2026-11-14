@@ -68,6 +68,9 @@ class Transcript(Base):
     start_ms = Column(Integer, nullable=True)      # audio time from meeting start
     end_ms = Column(Integer, nullable=True)
     utterance_id = Column(String, nullable=True)
+    # Mic lines only, when checked: me | room (someone else in the room) | echo (speaker bleed) | uncertain
+    voice = Column(String, nullable=True)
+    voice_score = Column(Float, nullable=True)     # similarity to the voice profile
 
     meeting = relationship("Meeting", back_populates="transcripts")
 
@@ -241,6 +244,18 @@ class MeetingAnalysis(Base):
     data = Column(Text)
 
 
+class VoiceProfile(Base):
+    """The leader's voiceprint (a speaker embedding, not audio). One row; encrypted with the database."""
+    __tablename__ = "voice_profiles"
+
+    id = Column(Integer, primary_key=True)
+    model = Column(String)
+    embedding = Column(Text)                # JSON list of floats
+    seconds = Column(Float)
+    quality = Column(Float, nullable=True)  # consistency across the enrollment recording (0-1)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 LEADERSHIP_TABLES = (Commitment, MeetingItem, PracticeItem, MeetingAnalysis)   # rows owned by a meeting
 
 
@@ -333,7 +348,8 @@ def init_db():
                 conn.execute(text(f"ALTER TABLE meetings ADD COLUMN {col} TEXT"))
             
         columns = [c['name'] for c in inspector.get_columns("transcripts")]
-        for col, ddl in (("start_ms", "INTEGER"), ("end_ms", "INTEGER"), ("utterance_id", "TEXT")):
+        for col, ddl in (("start_ms", "INTEGER"), ("end_ms", "INTEGER"), ("utterance_id", "TEXT"),
+                         ("voice", "TEXT"), ("voice_score", "FLOAT")):
             if col not in columns:
                 conn.execute(text(f"ALTER TABLE transcripts ADD COLUMN {col} {ddl}"))
 

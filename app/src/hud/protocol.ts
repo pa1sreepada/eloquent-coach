@@ -10,6 +10,9 @@ export interface TranscriptEvent {
   t0_ms: number
   t1_ms: number
   compute_ms: number
+  /** Mic finals only, once checked: me | room (someone else) | echo (speaker bleed) | uncertain */
+  voice?: 'me' | 'room' | 'echo' | 'uncertain'
+  voice_score?: number | null
 }
 
 export type CardKind =

@@ -42,6 +42,7 @@ jobs:
           python tests/test_secure_store.py
           python tests/test_api_auth.py
           python tests/test_leadership.py
+          python tests/test_voice.py
       - name: Vulnerability audit
         working-directory: backend
         run: pip-audit -r requirements.txt --progress-spinner=off

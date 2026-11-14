@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from database import (init_db, get_db, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics,
-                      LegacyTranscriptFile, DB_PATH, LEADERSHIP_TABLES)
+                      LegacyTranscriptFile, DB_PATH, LEADERSHIP_TABLES, VoiceProfile)
 import secure_store
 import api_auth
 from lm_studio_client import LMStudioClient
@@ -26,6 +26,7 @@ import realtime
 import prompter
 import leadership
 import leadership_analysis
+import voice
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ app.add_middleware(
 app.include_router(realtime.router)
 app.include_router(prompter.router)
 app.include_router(leadership.router)
+app.include_router(voice.router)
 
 lm_client: LMStudioClient | None = None
 metrics_engine: MetricsEngine | None = None
@@ -537,7 +539,7 @@ class TranscriptDelete(BaseModel):
 
 
 def _transcript_json(t: Transcript) -> dict:
-    return {"id": t.id, "speaker": t.speaker, "text": t.text,
+    return {"id": t.id, "speaker": t.speaker, "text": t.text, "voice": t.voice,
             "timestamp": t.timestamp.isoformat() if t.timestamp else None}
 
 
@@ -555,8 +557,9 @@ def edit_transcript_line(meeting_id: int, transcript_id: int, body: TranscriptEd
     if not row:
         raise HTTPException(404, "Transcript line not found")
     row.text = text_
-    if body.speaker is not None:
+    if body.speaker is not None and body.speaker != row.speaker:
         row.speaker = body.speaker
+        row.voice = None   # a manual correction beats the automatic voice label
     db.commit()
     return _transcript_json(row)
 
@@ -576,7 +579,8 @@ def delete_transcript_lines(meeting_id: int, body: TranscriptDelete, db: Session
 
 
 STORAGE_TABLES = {"meetings": Meeting, "transcripts": Transcript, "insights": Insight, "metrics": Metrics,
-                  "legacy_transcript_files": LegacyTranscriptFile, "app_config": AppConfig}
+                  "legacy_transcript_files": LegacyTranscriptFile, "app_config": AppConfig,
+                  "voice_profiles": VoiceProfile}
 
 
 def _db_path() -> str:

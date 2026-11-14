@@ -60,9 +60,11 @@ export default function HudApp() {
     else if (e.type === 'tracker') setTracker(e)
     else if (e.type === 'transcript') {
       setLive(e.kind === 'final' ? null : { speaker: e.speaker, text: e.text })
-      dispatch({ type: 'speech', speaker: e.speaker, text: e.text, final: e.kind === 'final' })
-      if (e.kind === 'final') dispatch({ type: 'silence', speaker: e.speaker })
-      if (e.speaker === 'Me' && aligner.current.words.length) {
+      // A mic line the voice check gave to someone else (or to speaker echo) isn't me speaking.
+      const speaker = e.voice === 'room' || e.voice === 'echo' ? 'Participant' : e.speaker
+      if (e.voice !== 'echo') dispatch({ type: 'speech', speaker, text: e.text, final: e.kind === 'final' })
+      if (e.kind === 'final') dispatch({ type: 'silence', speaker })
+      if (speaker === 'Me' && aligner.current.words.length) {
         const p = align(aligner.current, e.text)
         if (p !== aligner.current.pointer) { aligner.current.pointer = p; setPointer(p) }
       }

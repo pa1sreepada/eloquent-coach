@@ -1,11 +1,11 @@
 import type { TranscriptEvent } from './protocol'
 
-export interface Line { id: string; speaker: string; text: string; final: boolean; t0: number }
+export interface Line { id: string; speaker: string; text: string; final: boolean; t0: number; voice?: TranscriptEvent['voice'] }
 export const MAX_LINES = 200
 
 /** Upsert by utterance_id so partials rewrite in place; bounded history. */
 export function applyTranscript(lines: Line[], e: TranscriptEvent): Line[] {
-  const line: Line = { id: e.utterance_id, speaker: e.speaker, text: e.text, final: e.kind === 'final', t0: e.t0_ms }
+  const line: Line = { id: e.utterance_id, speaker: e.speaker, text: e.text, final: e.kind === 'final', t0: e.t0_ms, voice: e.voice }
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 6); i--) {
     if (lines[i].id === line.id) {
       const next = lines.slice()

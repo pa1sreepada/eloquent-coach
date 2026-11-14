@@ -131,7 +131,7 @@ def meeting_analysis(db: Session, m: Meeting, cfg: dict) -> dict:
         return json.loads(row.data)
     rows = (db.query(Transcript).filter(Transcript.meeting_id == m.id)
             .order_by(Transcript.timestamp.asc(), Transcript.id.asc()).all())
-    lines = [la.Line(t.speaker or "", t.text or "", t.start_ms, t.end_ms, t.timestamp) for t in rows]
+    lines = [la.Line(t.speaker or "", t.text or "", t.start_ms, t.end_ms, t.timestamp, t.voice) for t in rows]
     data = la.analyze_meeting(lines, _fillers(cfg), m.attribution, _jargon(cfg))
     if m.id not in _live_ids():
         if row:
@@ -537,7 +537,8 @@ def growth(include_mixed: bool = False, days: int = 365, db: Session = Depends(g
     report["meetings"] = [{"id": m["id"], "title": m["title"], "date": m["date"].isoformat(),
                            "category": m["category"], "category_label": la.CATEGORY_LABELS.get(m["category"]),
                            "attribution": m["attribution"], "override": m["override"] or "auto",
-                           "confidence": m["confidence"], "me_words": m["stats"]["me_words"]}
+                           "confidence": m["confidence"], "me_words": m["stats"]["me_words"],
+                           "voice_checked": m["analysis"].get("voice_checked", 0)}
                           for m in reversed(analysed)]
     report["practice"] = _practice(db, _fillers(_cfg(db)))
     return report

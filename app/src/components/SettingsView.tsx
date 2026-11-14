@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Save, Settings2, Database, Mic, RefreshCw } from 'lucide-react';
 import AsrSettingsPanel, { type AsrSettings } from './AsrSettingsPanel';
 import StoragePanel from './StoragePanel';
+import VoiceProfilePanel from './VoiceProfilePanel';
 import LlmConnectionPanel from './LlmConnectionPanel';
 import ExternalLlmPanel, { type ExternalLlmSettings } from './ExternalLlmPanel';
 import { SYSTEM_AUDIO } from '../hud/useDualChannelCapture';
@@ -445,6 +446,8 @@ export default function SettingsView() {
             Choose your physical microphone for your voice. For participants, "Mac system audio" captures whatever your Mac plays (macOS will ask once for Screen &amp; System Audio Recording — allow it, then restart the app); a virtual device like BlackHole also works. Headphones give the cleanest Me/Participant split.
           </small>
         </div>
+
+        <VoiceProfilePanel />
 
         {/* Transcription Settings */}
         <div className="glass-panel" style={{ padding: '2rem' }}>

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Pencil, Trash2, CheckSquare, X } from 'lucide-react';
+import { speakerColor, speakerLabel } from './voiceRecorder';
 
 const API = 'http://127.0.0.1:8000';
 
-export interface TranscriptLine { id: number; speaker: string; text: string; timestamp: string }
+export interface TranscriptLine { id: number; speaker: string; text: string; timestamp: string; voice?: string | null }
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -104,10 +105,11 @@ export default function TranscriptEditor({ meetingId, lines, hasSummary, onChang
       {error && <div style={{ fontSize: '0.82rem', color: 'var(--color-risk)' }}>{error}</div>}
 
       {lines.map(t => {
-        const me = t.speaker === 'Me';
         const header = (
           <div style={{ fontSize: '0.75rem', marginBottom: '0.15rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span style={{ fontWeight: 600, color: me ? '#60a5fa' : '#34d399' }}>{me ? 'You' : 'Participant'}</span>
+            <span style={{ fontWeight: 600, color: speakerColor(t.speaker, t.voice) }}
+              title={t.voice ? 'Heard on your mic; labelled by your voice profile. Edit the line to correct the speaker.' : undefined}>
+              {speakerLabel(t.speaker, t.voice)}</span>
             <span style={{ color: 'var(--text-tertiary)' }}>{timeOf(t.timestamp)}</span>
           </div>
         );

@@ -7,16 +7,21 @@ ASR_REPO = "handy-computer/parakeet-unified-en-0.6b-gguf"
 ASR_FILE = "parakeet-unified-en-0.6b-Q8_0.gguf"
 VAD_REPO = "handy-computer/silero-vad-v6.2-gguf"
 VAD_FILE = "silero-vad-v6.2-F32.gguf"
+# Speaker verification (voice profile): NVIDIA TitaNet-small exported to ONNX for sherpa-onnx (CC-BY-4.0).
+SPK_REPO = "csukuangfj/speaker-embedding-models"
+SPK_FILE = "nemo_en_titanet_small.onnx"
 
 # Pinned Hugging Face commits and the files' sha256, so a changed or tampered upload is never loaded
 # (model files are parsed by native code). Update these together when moving to a new model release.
 MODEL_REVISIONS = {
     ASR_REPO: "843b1b175ace04f5a89d379c79e2518c0d065b25",
     VAD_REPO: "a9b2d61c20ae4ddf3644edb34969e8185a485448",
+    SPK_REPO: "0743f301363dec56491a490f6d6cbc9d67f9a3bf",
 }
 MODEL_SHA256 = {
     ASR_FILE: "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
     VAD_FILE: "0d871a800c420fdd5d1b17a3aea4296d1c39608f0ff4a9295eb76457eb1c88e6",
+    SPK_FILE: "ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e",
 }
 
 

@@ -5,6 +5,7 @@ import { CoachCard } from './coachKinds';
 import { useDualChannelCapture } from '../hud/useDualChannelCapture';
 import { useCoachEvents } from '../hud/useCoachEvents';
 import { applyTranscript, type Line } from '../hud/transcriptStore';
+import { speakerColor, speakerLabel } from './voiceRecorder';
 import type { CoachEvent, AsrStatusEvent } from '../hud/protocol';
 
 const API = 'http://127.0.0.1:8000';
@@ -278,9 +279,9 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
               <div style={{ margin: 'auto', color: 'var(--text-tertiary)', fontSize: '0.9rem' }}>Listening…</div>
             ) : (
               transcripts.map((t) => (
-                <div key={t.id} style={{ opacity: t.final ? 1 : 0.55 }}>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.15rem', color: t.speaker === 'Me' ? '#60a5fa' : '#34d399' }}>
-                    {t.speaker === 'Me' ? 'You' : 'Participant'}
+                <div key={t.id} style={{ opacity: !t.final || t.voice === 'echo' ? 0.45 : 1 }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.15rem', color: speakerColor(t.speaker, t.voice) }}>
+                    {speakerLabel(t.speaker, t.voice)}
                   </div>
                   <div style={{ color: 'var(--text-primary)', fontSize: '0.98rem', lineHeight: 1.5 }}>{t.text}</div>
                 </div>

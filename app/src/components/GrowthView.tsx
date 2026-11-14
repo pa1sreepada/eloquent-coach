@@ -12,7 +12,7 @@ interface Growth {
   weekly: ({ week: string; meetings: number } & Record<string, number | null>)[];
   focus: { metric: string; label: string; recent: number; target: number | [number, number] }[];
   attribution: { verified: number; mixed: number; excluded: number; used: number };
-  meetings: { id: number; title: string; date: string; category_label: string; attribution: string; override: string; confidence: number; me_words: number }[];
+  meetings: { id: number; title: string; date: string; category_label: string; attribution: string; override: string; confidence: number; me_words: number; voice_checked?: number }[];
   practice: { count: number; sessions: { kind: string; date: string; title: string; stats: Record<string, number | null>; scores?: Record<string, number> }[] };
 }
 interface SayItem { key: string; original: string; better: string | null; why: string; meeting_id: number; meeting_title: string; date: string; attribution: string; practiced: boolean }
@@ -51,8 +51,8 @@ export default function GrowthView() {
             <Muted>
               Your mic channel is "Me", but on speakers it also picks up the room. Trends use only meetings where the "Me" channel is
               clearly you ({g.attribution.verified} verified), plus rehearsals and teleprompter runs. {g.attribution.mixed} meetings look mixed
-              {mixed ? ' and are included' : ' and are left out'}; {g.attribution.excluded} are excluded. Use a headset, or mark a meeting
-              verified below, for the most accurate picture. {g.attribution.used} meetings are counted.
+              {mixed ? ' and are included' : ' and are left out'}; {g.attribution.excluded} are excluded. Record a voice profile in Settings, use a headset,
+              or mark a meeting verified below, for the most accurate picture (🎙 = checked against your voice). {g.attribution.used} meetings are counted.
             </Muted>
             <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => setShowMeetings(s => !s)}>
               {showMeetings ? 'Hide' : 'Review'} meeting attribution
@@ -64,8 +64,10 @@ export default function GrowthView() {
                     <span style={{ width: '82px', color: 'var(--text-tertiary)' }}>{m.date.slice(0, 10)}</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.title}>{m.title}</span>
                     <span style={{ width: '120px', color: 'var(--text-tertiary)' }}>{m.category_label}</span>
-                    <span style={{ width: '80px', color: m.attribution === 'verified' ? '#34d399' : m.attribution === 'mixed' ? '#fbbf24' : 'var(--text-tertiary)' }}
-                      title={`Auto confidence ${Math.round(m.confidence * 100)}% · ${m.me_words} words on "Me"`}>{m.attribution}</span>
+                    <span style={{ width: '100px', color: m.attribution === 'verified' ? '#34d399' : m.attribution === 'mixed' ? '#fbbf24' : 'var(--text-tertiary)' }}
+                      title={`Auto confidence ${Math.round(m.confidence * 100)}% · ${m.me_words} words on "Me"`
+                        + ((m.voice_checked ?? 0) >= 0.6 ? ' · checked against your voice profile' : '')}>
+                      {m.attribution}{(m.voice_checked ?? 0) >= 0.6 && ' 🎙'}</span>
                     <select className="type-select" value={m.override} onChange={e => override(m.id, e.target.value)}>
                       <option value="auto">auto</option><option value="verified">verified</option>
                       <option value="mixed">mixed</option><option value="exclude">exclude</option>

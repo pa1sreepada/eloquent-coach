@@ -16,11 +16,13 @@ import threading
 from collections import deque
 from dataclasses import dataclass, field
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 import adaptive
 import llm_provider
+import voiceprint
 from asr_service import STREAM_PROFILES, AsrEvent, StreamingTranscriptionService, resolve_model_paths
 from coach_engine import CoachingEngine, LlmCoordinator, OpenAICompatClient
 from hardware import HardwareInfo, PowerState, llm_is_local, probe_hardware, read_power_state
@@ -237,6 +239,7 @@ def _persist_final(meeting_id: int, start: datetime.datetime | None, ev: dict) -
         ts = (start + datetime.timedelta(milliseconds=ev["t0_ms"])) if start else None
         db.add(Transcript(meeting_id=meeting_id, text=ev["text"], speaker=ev["speaker"],
                           start_ms=ev["t0_ms"], end_ms=ev["t1_ms"], utterance_id=ev["utterance_id"],
+                          voice=ev.get("voice"), voice_score=ev.get("voice_score"),
                           **({"timestamp": ts} if ts else {})))
         db.commit()
     finally:
@@ -287,6 +290,8 @@ class MeetingSession:
             coordinator=LlmCoordinator(self.controller, llm_local=cfg.llm_local,
                                        me_speaking=lambda: self.asr.in_utterance("Me")))
         self.tracker = DecisionTracker()   # live decisions / owners / parked topics for the HUD
+        self.voice = voiceprint.VoiceChecker.load()   # tells my voice from the room's on the mic channel
+        self._voice_order = asyncio.Lock()            # keeps mic finals in order while they are checked
         self._bg: set[asyncio.Task] = set()
         logger.info("meeting %s: ASR plan (%s) %s | %s", meeting_id, self.plan.source,
                     {s: f"{c.device}/{c.profile}" for s, c in self.plan.channels.items()},
@@ -311,17 +316,42 @@ class MeetingSession:
             self._spawn(asyncio.to_thread(_persist_card, self.meeting_id, event))
 
     async def _on_asr(self, ev: AsrEvent) -> None:
+        if ev.type == "final" and ev.speaker == "Me":
+            # The voice check (~0.1 s) runs off the ASR path so the mic channel never lags behind.
+            mic = self.asr.audio("Me", ev.t0_ms, ev.t1_ms)
+            loop = self.asr.audio("Participant", ev.t0_ms, ev.t1_ms)
+            self._spawn(self._checked_final(ev, mic, loop))
+            return
+        await self._handle(ev)
+
+    async def _checked_final(self, ev: AsrEvent, mic, loop) -> None:
+        async with self._voice_order:
+            voice = sim = None
+            if mic is not None and (self.voice.verifying or (loop is not None and np.abs(loop).max() > 1e-3)):
+                try:
+                    voice, sim = await asyncio.to_thread(self.voice.check, mic, loop)
+                except Exception:   # noqa: BLE001 - never lose a transcript line over the voice check
+                    logger.exception("voice check failed")
+            await self._handle(ev, voice, sim)
+
+    async def _handle(self, ev: AsrEvent, voice: str | None = None, sim: float | None = None) -> None:
         payload = ev.to_json()
+        if voice:
+            payload["voice"], payload["voice_score"] = voice, sim
         bus.publish(self.meeting_id, payload)
         if ev.type == "final":
             self._spawn(asyncio.to_thread(_persist_final, self.meeting_id,
                                           self.meta["start"], payload))
-            new_items = self.tracker.ingest(ev.speaker, ev.text, ev.t0_ms)
+            if voice == "echo":
+                return   # the mic re-hearing the loopback: already handled as the Participant line
+            # Someone else in the room is a participant for tracking and coaching.
+            speaker = "Participant" if voice == "room" else ev.speaker
+            new_items = self.tracker.ingest(speaker, ev.text, ev.t0_ms)
             if new_items:
                 bus.publish(self.meeting_id, self.tracker.snapshot())
                 self._spawn(asyncio.to_thread(_persist_items, self.meeting_id, new_items))
             # Telemetry is sub-ms; the LLM call inside is spawned, never awaited here.
-            await self.coach.on_final(ev.speaker, ev.text, ev.t0_ms, ev.t1_ms)
+            await self.coach.on_final(speaker, ev.text, ev.t0_ms, ev.t1_ms)
 
     def _spawn(self, coro) -> None:
         t = asyncio.ensure_future(coro)

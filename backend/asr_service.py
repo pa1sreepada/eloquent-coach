@@ -47,25 +47,28 @@ IMPORT_HINT = ("Download from Hugging Face failed for {name}. If you already hav
                "import it with:  python3 scripts/import_models.py <file-or-folder>  (copies into {dir})")
 
 
-def resolve_model_paths(asr_path: str | None = None, vad_path: str | None = None) -> tuple[str, str]:
-    """Return local model paths. Order: argument → env var → MODELS_DIR → HF cache → HF download."""
+def fetch_model(repo: str, name: str) -> str:
+    """Local path of a pinned model file. Order: MODELS_DIR → HF cache → HF download; sha256-verified."""
     from huggingface_hub import hf_hub_download, try_to_load_from_cache
 
-    def fetch(repo: str, name: str) -> str:
-        revision = MODEL_REVISIONS[repo]
-        local = os.path.join(MODELS_DIR, name)
-        if os.path.isfile(local):
-            return verify_model_file(local, name)
-        cached = try_to_load_from_cache(repo, name, revision=revision)
-        if isinstance(cached, str):
-            return verify_model_file(cached, name)
-        use_system_trust_store()
-        try:
-            path = hf_hub_download(repo, name, revision=revision)
-        except Exception as e:  # noqa: BLE001 - auth/403/network/SSL all need the same remedy
-            raise RuntimeError(IMPORT_HINT.format(name=name, dir=MODELS_DIR) + f"\nCause: {e}") from e
-        return verify_model_file(path, name)
+    revision = MODEL_REVISIONS[repo]
+    local = os.path.join(MODELS_DIR, name)
+    if os.path.isfile(local):
+        return verify_model_file(local, name)
+    cached = try_to_load_from_cache(repo, name, revision=revision)
+    if isinstance(cached, str):
+        return verify_model_file(cached, name)
+    use_system_trust_store()
+    try:
+        path = hf_hub_download(repo, name, revision=revision)
+    except Exception as e:  # noqa: BLE001 - auth/403/network/SSL all need the same remedy
+        raise RuntimeError(IMPORT_HINT.format(name=name, dir=MODELS_DIR) + f"\nCause: {e}") from e
+    return verify_model_file(path, name)
 
+
+def resolve_model_paths(asr_path: str | None = None, vad_path: str | None = None) -> tuple[str, str]:
+    """Return local model paths. Order: argument → env var → MODELS_DIR → HF cache → HF download."""
+    fetch = fetch_model
     asr = asr_path or os.environ.get("ELOQUENT_ASR_MODEL") or fetch(ASR_REPO, ASR_FILE)
     vad = vad_path or os.environ.get("ELOQUENT_VAD_MODEL") or fetch(VAD_REPO, VAD_FILE)
     return asr, vad
@@ -278,6 +281,34 @@ class ChannelTranscriber:
                         self._samples_seen * 1000 // SAMPLE_RATE, round(compute_ms, 1))
 
 
+class AudioRing:
+    """The last `seconds` of one channel, addressable by absolute sample index (for voice checks)."""
+
+    def __init__(self, seconds: float = 45.0):
+        self.buf = np.zeros(int(seconds * SAMPLE_RATE), dtype=np.float32)
+        self.total = 0   # samples ever written
+
+    def append(self, pcm: np.ndarray) -> None:
+        n, size = len(pcm), len(self.buf)
+        if n >= size:
+            pcm, n = pcm[-size:], size
+            self.total += len(pcm) - size
+        start = self.total % size
+        first = min(n, size - start)
+        self.buf[start:start + first] = pcm[:first]
+        self.buf[:n - first] = pcm[first:]
+        self.total += n
+
+    def slice_ms(self, t0_ms: int, t1_ms: int) -> np.ndarray | None:
+        """Audio between two meeting-relative times, or None if it is no longer (or not yet) buffered."""
+        a, b = t0_ms * SAMPLE_RATE // 1000, min(t1_ms * SAMPLE_RATE // 1000, self.total)
+        size = len(self.buf)
+        if b <= a or a < self.total - size:
+            return None
+        idx = np.arange(a, b) % size
+        return self.buf[idx].copy()
+
+
 EventSink = Callable[[AsrEvent], Awaitable[None]]
 
 
@@ -323,6 +354,7 @@ class StreamingTranscriptionService:
             for s in speakers
         }
         self._order = list(speakers)
+        self._rings = {s: AudioRing() for s in speakers}
         self._tasks: set[asyncio.Task] = set()
 
     def push_interleaved(self, frame: bytes) -> None:
@@ -330,7 +362,9 @@ class StreamingTranscriptionService:
         now = time.monotonic()
         for idx, speaker in enumerate(self._order):
             worker = self._workers[speaker]
-            worker.pending.append(stereo[:, idx].copy())
+            pcm = stereo[:, idx].copy()
+            self._rings[speaker].append(pcm)
+            worker.pending.append(pcm)
             if worker.oldest_arrival is None:
                 worker.oldest_arrival = now
             if not worker.busy:
@@ -358,6 +392,10 @@ class StreamingTranscriptionService:
 
     def in_utterance(self, speaker: str) -> bool:
         return self._workers[speaker].transcriber.in_utterance
+
+    def audio(self, speaker: str, t0_ms: int, t1_ms: int) -> np.ndarray | None:
+        """Recent raw audio of one channel (both channels share one timeline)."""
+        return self._rings[speaker].slice_ms(t0_ms, t1_ms)
 
     def channel_state(self) -> dict[str, dict]:
         return {s: {"device": w.transcriber.device, "profile": w.transcriber.profile}
