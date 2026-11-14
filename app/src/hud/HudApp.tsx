@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import { deckReducer, initialDeck } from './cardDeck'
 import { align, createAligner, paginate } from './scriptAligner'
 import { useCoachEvents } from './useCoachEvents'
-import type { AsrStatusEvent, CoachEvent, TelemetryEvent } from './protocol'
+import type { AsrStatusEvent, CoachEvent, TelemetryEvent, TrackerEvent } from './protocol'
 import './hud.css'
 
 const KIND_LABEL: Record<string, string> = {
@@ -20,6 +20,7 @@ export default function HudApp() {
   const [pointer, setPointer] = useState(0)
   const [asking, setAsking] = useState<{ state: 'pending' | 'empty' | 'error'; message?: string } | null>(null)
   const [llmError, setLlmError] = useState<string | null>(null)
+  const [tracker, setTracker] = useState<TrackerEvent | null>(null)
   const aligner = useRef(createAligner(''))
 
   // Main process tells us which meeting to follow + hotkeys.
@@ -56,6 +57,7 @@ export default function HudApp() {
     else if (e.type === 'card_update') dispatch({ type: 'card_update', card: e })
     else if (e.type === 'telemetry') setTele(e)
     else if (e.type === 'asr_status') setAsr(e)
+    else if (e.type === 'tracker') setTracker(e)
     else if (e.type === 'transcript') {
       setLive(e.kind === 'final' ? null : { speaker: e.speaker, text: e.text })
       dispatch({ type: 'speech', speaker: e.speaker, text: e.text, final: e.kind === 'final' })
@@ -89,6 +91,8 @@ export default function HudApp() {
 
         {alert && <div className="hud-alert">{alert}</div>}
 
+        {tracker && <TrackerStrip t={tracker} />}
+
         {llmError && <div className="hud-llm-error" title={llmError}>Coaching unavailable: {llmError}</div>}
 
         {asking && (
@@ -117,6 +121,27 @@ export default function HudApp() {
         {script && <Teleprompter script={script} pointer={pointer} />}
         {live && <div className={`hud-live ${live.speaker === 'Me' ? 'me' : ''}`}>{live.text}</div>}
       </div>
+    </div>
+  )
+}
+
+/** Decisions / commitments without an owner / parked topics, so nothing is lost before the meeting ends. */
+function TrackerStrip({ t }: { t: TrackerEvent }) {
+  const last = [...t.decisions, ...t.commitments, ...t.parked].sort((a, b) => (b.t_ms ?? 0) - (a.t_ms ?? 0))[0]
+  const unowned = t.commitments.filter(c => !c.owner).map(c => c.text)
+  const tip = [
+    ...t.decisions.map(d => `✓ ${d.text}`),
+    ...t.commitments.map(c => `→ ${c.owner ?? 'NO OWNER'}: ${c.text}`),
+    ...t.parked.map(p => `⏸ ${p.text}`),
+  ].join('\n')
+  return (
+    <div className="hud-tracker" title={tip}>
+      <span><b>{t.counts.decisions}</b> decided</span>
+      <span className={t.counts.unowned ? 'warn' : ''}><b>{t.counts.commitments}</b> actions{t.counts.unowned ? ` · ${t.counts.unowned} no owner` : ''}</span>
+      <span><b>{t.counts.parked}</b> parked</span>
+      {unowned.length > 0
+        ? <div className="hud-tracker-last warn">Who owns: {unowned[unowned.length - 1]}</div>
+        : last && <div className="hud-tracker-last">{last.kind === 'decision' ? '✓' : last.kind === 'parked' ? '⏸' : '→'} {last.text}</div>}
     </div>
   )
 }

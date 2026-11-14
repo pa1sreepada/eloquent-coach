@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event, Column, Integer, String, Float, DateTime, ForeignKey, Text, LargeBinary
+from sqlalchemy import create_engine, event, Column, Integer, String, Float, DateTime, Date, ForeignKey, Text, LargeBinary
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlcipher3 import dbapi2 as sqlcipher
 import datetime
@@ -49,6 +49,8 @@ class Meeting(Base):
     strategic_alternatives = Column(Text, nullable=True) # Stored as JSON string
     notes = Column(Text, nullable=True)            # typed by the leader during/after the meeting
     followup_email = Column(Text, nullable=True)   # drafted on demand from the summary
+    attendees = Column(Text, nullable=True)        # comma-separated names; links meetings to stakeholders
+    attribution = Column(String, nullable=True)    # growth: None/auto | verified | mixed | exclude ("Me" lines really mine?)
 
     transcripts = relationship("Transcript", back_populates="meeting")
     insights = relationship("Insight", back_populates="meeting")
@@ -148,6 +150,100 @@ class LegacyTranscriptFile(Base):
     modified_at = Column(DateTime, nullable=True)
 
 
+class Commitment(Base):
+    """A promise made in a meeting (by me or someone else), tracked until it's done."""
+    __tablename__ = "commitments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), nullable=True, index=True)
+    owner = Column(String, default="Unassigned")
+    is_mine = Column(Integer, default=0)
+    action = Column(Text)
+    due_text = Column(String, nullable=True)       # as stated ("Friday", "next week")
+    due_date = Column(Date, nullable=True)         # resolved against the meeting date
+    status = Column(String, default="open")        # open | done | dropped
+    source = Column(String, default="manual")      # summary | live | manual
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class Stakeholder(Base):
+    """What a person I meet often cares about and how to persuade them."""
+    __tablename__ = "stakeholders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    role = Column(String, default="")
+    relationship_type = Column(String, default="")   # direct report, peer, boss, board, vendor, customer…
+    priorities = Column(Text, default="")
+    pushback_style = Column(Text, default="")
+    persuaders = Column(Text, default="")
+    notes = Column(Text, default="")
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class MeetingItem(Base):
+    """Decisions, commitments and parked topics caught live by the decision tracker."""
+    __tablename__ = "meeting_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), index=True)
+    kind = Column(String)                  # decision | commitment | parked
+    text = Column(Text)
+    owner = Column(String, nullable=True)  # commitments only; None = nobody owns it yet
+    speaker = Column(String, nullable=True)
+    t_ms = Column(Integer, nullable=True)
+
+
+class Rehearsal(Base):
+    """A practice conversation against an AI persona, with its scorecard."""
+    __tablename__ = "rehearsals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    persona = Column(String)
+    scenario = Column(Text, default="")
+    turns = Column(Text, default="[]")      # JSON [{role: me|coach, text}]
+    scores = Column(Text, nullable=True)    # JSON scorecard
+    feedback = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class GeneratedDoc(Base):
+    """LLM-written briefings kept for later: weekly digest, narrative check, pre-meeting brief, stakeholder notes."""
+    __tablename__ = "generated_docs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, index=True)       # digest | narrative | brief
+    ref = Column(String, nullable=True)     # e.g. the week, or the brief's subject
+    content = Column(Text)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class PracticeItem(Base):
+    """A 'say it better' moment the leader has practised."""
+    __tablename__ = "practice_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True)   # hash of meeting + original line
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), nullable=True)
+    original = Column(Text)
+    better = Column(Text, nullable=True)
+    practiced_at = Column(DateTime, nullable=True)
+
+
+class MeetingAnalysis(Base):
+    """Cached deterministic per-meeting analysis; recomputed when the transcript changes (signature)."""
+    __tablename__ = "meeting_analysis"
+
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), primary_key=True)
+    signature = Column(String)
+    data = Column(Text)
+
+
+LEADERSHIP_TABLES = (Commitment, MeetingItem, PracticeItem, MeetingAnalysis)   # rows owned by a meeting
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
 
@@ -232,7 +328,7 @@ def init_db():
             conn.execute(text("ALTER TABLE meetings ADD COLUMN lps_score FLOAT"))
         if "strategic_alternatives" not in columns:
             conn.execute(text("ALTER TABLE meetings ADD COLUMN strategic_alternatives TEXT"))
-        for col in ("notes", "followup_email"):
+        for col in ("notes", "followup_email", "attendees", "attribution"):
             if col not in columns:
                 conn.execute(text(f"ALTER TABLE meetings ADD COLUMN {col} TEXT"))
             

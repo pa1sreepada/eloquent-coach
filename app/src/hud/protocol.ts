@@ -89,4 +89,21 @@ export interface LlmStatusEvent {
   message: string
 }
 
-export type CoachEvent = TranscriptEvent | CardEvent | CardUpdateEvent | TelemetryEvent | AsrStatusEvent | AskEvent | LlmStatusEvent
+export interface TrackedItem {
+  kind: 'decision' | 'commitment' | 'parked'
+  text: string
+  owner: string | null
+  speaker: string
+  t_ms: number | null
+}
+
+/** Silent decision tracker: sent whenever the meeting gains a decision, commitment or parked topic. */
+export interface TrackerEvent {
+  type: 'tracker'
+  decisions: TrackedItem[]
+  commitments: TrackedItem[]
+  parked: TrackedItem[]
+  counts: { decisions: number; commitments: number; unowned: number; parked: number }
+}
+
+export type CoachEvent = TranscriptEvent | CardEvent | CardUpdateEvent | TelemetryEvent | AsrStatusEvent | AskEvent | LlmStatusEvent | TrackerEvent

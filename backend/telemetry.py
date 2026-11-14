@@ -55,6 +55,7 @@ class TelemetrySnapshot:
     filler_per_min: float           # rolling, per minute of my speech
     fillers_total: int
     hedges_total: int
+    hedges_recent: int              # my hedges in the rolling window
     monologue_s: float              # my current uninterrupted run
     questions_asked: int
     avg_wait_after_question_s: float
@@ -138,6 +139,7 @@ class SpeechTelemetry:
             filler_per_min=sum(u.fillers for u in mine) / my_min if my_min else 0.0,
             fillers_total=self._fillers_total,
             hedges_total=self._hedges_total,
+            hedges_recent=sum(u.hedges for u in mine),
             monologue_s=(self._last_t1 - self._monologue_start) / 1000 if self._monologue_start is not None else 0.0,
             questions_asked=self._questions,
             avg_wait_after_question_s=sum(self._waits) / len(self._waits) if self._waits else 0.0,
@@ -147,7 +149,11 @@ class SpeechTelemetry:
             others_voiced_s=self._voiced["others"] / 1000,
         )
         if snap.talk_share_recent_pct > self.target_talk_share + 15 and my_ms > 60_000:
-            snap.alerts.append("PAUSE & LISTEN")
+            # Executive presence: draw others in rather than just stopping.
+            asked = any(u.is_question for u in mine)
+            snap.alerts.append("PAUSE & LISTEN" if asked or snap.talk_share_recent_pct < 70 else "INVITE THE ROOM")
+        if snap.hedges_recent >= 4 and my_ms > 30_000:
+            snap.alerts.append("COMMIT TO A POSITION")
         if snap.monologue_s > 90:
             snap.alerts.append("LAND THE POINT")
         if snap.my_wpm > 175 and my_ms > 20_000:

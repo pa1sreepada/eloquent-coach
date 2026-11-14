@@ -1,19 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import appIcon from './assets/icon.svg';
-import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen, ScrollText } from 'lucide-react';
+import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen, ScrollText, Compass, TrendingUp, Users } from 'lucide-react';
 import LiveMeetingView from './components/LiveMeetingView';
 import DashboardView from './components/DashboardView';
 import SettingsView from './components/SettingsView';
 import ReportsView from './components/ReportsView';
 import DailyReportView from './components/DailyReportView';
 import TeleprompterView from './components/TeleprompterView';
+import PrepareView, { type StartArgs } from './components/PrepareView';
+import GrowthView from './components/GrowthView';
+import LeadershipView from './components/LeadershipView';
+
+type Tab = 'dashboard' | 'live' | 'prepare' | 'history' | 'growth' | 'leadership' | 'reports' | 'teleprompter' | 'settings';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'history' | 'reports' | 'teleprompter' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [isRecording, setIsRecording] = useState(false);
   const [meetingMode, setMeetingMode] = useState('General Executive');
   const [meetingAgenda, setMeetingAgenda] = useState('');
   const [meetingPrepNotes, setMeetingPrepNotes] = useState('');
+  const [meetingTitle, setMeetingTitle] = useState('');
+  const [meetingAttendees, setMeetingAttendees] = useState('');
   const [selectedHistoryId, setSelectedHistoryId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
 
@@ -26,6 +33,17 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const startMeeting = (a: StartArgs) => {
+    if (isRecording) { setActiveTab('live'); return; }
+    setMeetingMode(a.mode);
+    setMeetingAgenda(a.agenda);
+    setMeetingPrepNotes(a.prepNotes || '');
+    setMeetingTitle(a.title || '');
+    setMeetingAttendees(a.attendees || '');
+    setIsRecording(true);
+    setActiveTab('live');
+  };
+
   const renderContent = () => {
     return (
       <div style={{ height: '100%', position: 'relative' }}>
@@ -36,6 +54,8 @@ function App() {
             mode={meetingMode}
             agenda={meetingAgenda}
             prepNotes={meetingPrepNotes}
+            title={meetingTitle}
+            attendees={meetingAttendees}
             onStopMeeting={(id) => {
               setIsRecording(false);
               if (id) {
@@ -50,16 +70,14 @@ function App() {
 
         {activeTab === 'dashboard' && (
           <DashboardView 
-            onStartMeeting={(mode, agenda, prepNotes) => {
-              setMeetingMode(mode);
-              setMeetingAgenda(agenda);
-              setMeetingPrepNotes(prepNotes || '');
-              setIsRecording(true);
-              setActiveTab('live');
-            }} 
+            onStartMeeting={startMeeting}
             onViewHistory={() => setActiveTab('history')}
+            onOpen={(tab) => setActiveTab(tab)}
           />
         )}
+        {activeTab === 'prepare' && <PrepareView onStartMeeting={startMeeting} />}
+        {activeTab === 'growth' && <GrowthView />}
+        {activeTab === 'leadership' && <LeadershipView />}
         {activeTab === 'history' && <ReportsView initialMeetingId={selectedHistoryId} />}
         {activeTab === 'reports' && <DailyReportView />}
         {activeTab === 'teleprompter' && <TeleprompterView />}
@@ -90,8 +108,14 @@ function App() {
             <NavItem icon={<Mic size={18} color="var(--color-risk)" />} label="Live Coach" collapsed={collapsed}
               active={activeTab === 'live'} onClick={() => setActiveTab('live')} />
           )}
+          <NavItem icon={<Compass size={18} />} label="Prepare" collapsed={collapsed}
+            active={activeTab === 'prepare'} onClick={() => setActiveTab('prepare')} />
           <NavItem icon={<History size={18} />} label="Meeting History" collapsed={collapsed}
             active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+          <NavItem icon={<TrendingUp size={18} />} label="Growth" collapsed={collapsed}
+            active={activeTab === 'growth'} onClick={() => setActiveTab('growth')} />
+          <NavItem icon={<Users size={18} />} label="Leadership" collapsed={collapsed}
+            active={activeTab === 'leadership'} onClick={() => setActiveTab('leadership')} />
           <NavItem icon={<FileText size={18} />} label="Reports" collapsed={collapsed}
             active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
           <NavItem icon={<ScrollText size={18} />} label="Teleprompter" collapsed={collapsed}

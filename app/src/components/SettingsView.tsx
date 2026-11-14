@@ -15,6 +15,7 @@ interface Settings extends AsrSettings, ExternalLlmSettings {
   coach_instructions: string;
   filler_words: string;
   custom_jargon: string;
+  leader_name?: string;
 }
 
 export default function SettingsView() {
@@ -326,6 +327,15 @@ export default function SettingsView() {
               On (recommended): each card's headline appears on the HUD as soon as the model writes it, and the details follow.
               This saves seconds with larger models. If your server doesn't support streaming, the app falls back automatically.
               Applies to the next meeting.
+            </small>
+          </div>
+
+          <div style={{ marginTop: '1.5rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Your name</label>
+            <input className="field" type="text" name="leader_name" value={settings.leader_name ?? ''} onChange={handleChange}
+              placeholder="e.g. Pavan Sreepada" maxLength={80} />
+            <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-tertiary)' }}>
+              Lets the commitment ledger tell your action items from other people's, and keeps you out of your own attendee lists.
             </small>
           </div>
 

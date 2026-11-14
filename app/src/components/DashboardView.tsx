@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Play, ChevronDown, ChevronRight } from 'lucide-react';
+import { Play, ChevronDown, ChevronRight, Sparkles, AlertTriangle } from 'lucide-react';
 import { MODES } from './meetingModes';
+import type { StartArgs } from './PrepareView';
+import { api, errText, usePeople, type Reminders } from './leadershipApi';
+import { PeopleList } from './leadershipUi';
 
 interface DashboardStats {
   sessions: number;
@@ -12,13 +15,41 @@ interface DashboardStats {
   fillers_per_session: number | null;
 }
 
-export default function DashboardView({ onStartMeeting, onViewHistory }: { onStartMeeting: (mode: string, agenda: string, prepNotes?: string) => void, onViewHistory: () => void }) {
+export default function DashboardView({ onStartMeeting, onViewHistory, onOpen }: { onStartMeeting: (a: StartArgs) => void, onViewHistory: () => void, onOpen: (tab: 'leadership' | 'growth' | 'prepare') => void }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [mode, setMode] = useState(() => localStorage.getItem('lastMode') || 'General Executive');
   const [agenda, setAgenda] = useState('');
   const [prepNotes, setPrepNotes] = useState('');
   const [showPrep, setShowPrep] = useState(false);
+  const [title, setTitle] = useState('');
+  const [attendees, setAttendees] = useState('');
+  const [briefing, setBriefing] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
+  const [reminders, setReminders] = useState<Reminders | null>(null);
+  const people = usePeople();
+
+  useEffect(() => {
+    api<Reminders>('/commitments/reminders').then(r => {
+      setReminders(r);
+      // One gentle nudge a day for what you owe that's late.
+      const today = new Date().toDateString();
+      if (r.overdue.length && localStorage.getItem('remindedOn') !== today && 'Notification' in window) {
+        localStorage.setItem('remindedOn', today);
+        new Notification('Eloquent Coach', { body: `${r.overdue.length} commitment${r.overdue.length === 1 ? '' : 's'} overdue: ${r.overdue[0].action}` });
+      }
+    }).catch(() => {});
+  }, []);
+
+  const buildBrief = async () => {
+    setBriefing(true); setBriefError(null);
+    try {
+      const r = await api<{ brief: string; llm_error: string | null }>('/brief', { body: { title, mode, attendees, agenda } });
+      setPrepNotes(p => (p.trim() ? `${p.trim()}\n\n` : '') + r.brief);
+      setShowPrep(true);
+      if (r.llm_error) setBriefError(`LLM unavailable (${r.llm_error}); added the raw context instead.`);
+    } catch (e) { setBriefError(errText(e)); } finally { setBriefing(false); }
+  };
 
   useEffect(() => {
     // The backend can take a while to start (first-run model download), so retry until it answers.
@@ -43,7 +74,7 @@ export default function DashboardView({ onStartMeeting, onViewHistory }: { onSta
 
   const start = () => {
     localStorage.setItem('lastMode', mode);
-    onStartMeeting(mode, agenda.trim(), prepNotes.trim());
+    onStartMeeting({ mode, agenda: agenda.trim(), prepNotes: prepNotes.trim(), title: title.trim(), attendees: attendees.trim() });
   };
 
   const fmt = (v: number | null | undefined, suffix = '') => (v == null ? '—' : `${v}${suffix}`);
@@ -74,6 +105,18 @@ export default function DashboardView({ onStartMeeting, onViewHistory }: { onSta
           </div>
         </div>
 
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: '0.5rem' }}>Title <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span></div>
+            <input className="field" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. 1:1 with Sarah" />
+          </div>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: '0.5rem' }}>Attendees <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span></div>
+            <input className="field" list="dash-people" value={attendees} onChange={(e) => setAttendees(e.target.value)} placeholder="e.g. Sarah Lee, Raj" />
+            <PeopleList id="dash-people" people={people} />
+          </div>
+        </div>
+
         <div>
           <div className="eyebrow" style={{ marginBottom: '0.5rem' }}>Goal <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span></div>
           <input className="field" value={agenda} onChange={(e) => setAgenda(e.target.value)}
@@ -94,13 +137,33 @@ export default function DashboardView({ onStartMeeting, onViewHistory }: { onSta
           )}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        {briefError && <div style={{ color: '#f59e0b', fontSize: '0.82rem' }}>{briefError}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <button className="btn" onClick={buildBrief} disabled={briefing}
+            title="Pull history with these people, open commitments and stakeholder notes into your prep notes">
+            <Sparkles size={14} /> {briefing ? 'Building brief…' : 'Build brief'}
+          </button>
           <button className="btn btn-primary" onClick={start} title="Start session (⌘↩ from the goal field)"
             style={{ padding: '0.65rem 1.4rem', borderRadius: '10px', boxShadow: '0 6px 18px -6px var(--accent-primary)' }}>
             <Play size={15} fill="currentColor" /> Start Session
           </button>
         </div>
       </section>
+
+      {reminders && (reminders.overdue.length + reminders.due_soon.length + reminders.slipping.length > 0) && (
+        <section className="glass-panel" style={{ padding: '1.1rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <div className="eyebrow">Commitments</div>
+            <button onClick={() => onOpen('leadership')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#60a5fa', fontSize: '0.85rem' }}>Open ledger</button>
+          </div>
+          {reminders.overdue.slice(0, 3).map(c => (
+            <div key={c.id} style={{ fontSize: '0.88rem', color: '#f87171' }}><AlertTriangle size={13} /> You owe: {c.action} <span style={{ opacity: 0.7 }}>({c.days_overdue}d late)</span></div>))}
+          {reminders.due_soon.slice(0, 3).map(c => (
+            <div key={c.id} style={{ fontSize: '0.88rem' }}>Due {c.due_date}: {c.action}</div>))}
+          {reminders.slipping.slice(0, 3).map(c => (
+            <div key={c.id} style={{ fontSize: '0.88rem', color: '#fbbf24' }}>{c.owner} owes you: {c.action} <span style={{ opacity: 0.7 }}>({c.days_overdue}d late)</span></div>))}
+        </section>
+      )}
 
       {/* Your trends (real data only) */}
       <section>

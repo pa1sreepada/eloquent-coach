@@ -23,6 +23,10 @@ No audio, transcripts, or prompts leave your computer unless you point it at a r
 | **Telemetry** | Talk-time share, words per minute, filler words, hedges, monologue length, wait time after questions, interruptions, and room sentiment. |
 | **Teleprompter HUD** | Transparent, click-through, always-on-top overlay with a card deck that auto-advances with the conversation, plus a script aligner that follows your prepared talking points as you speak. |
 | **Voice-following teleprompter** | Write or import a script, then float it under your camera. It scrolls as you speak, keeps up with fillers, ad-libs and paraphrasing, and picks up wherever you rejoin. Every read-through is scored. See [Teleprompter](#teleprompter). |
+| **Prepare** | One-click pre-meeting brief (open commitments, history with each attendee, what they care about, likely pushback), AI rehearsal partners (skeptical CFO, board member, upset direct report, …) with a scorecard, and a stakeholder map that learns from your meetings. |
+| **Live decision tracker** | The HUD shows decisions, action items (with owners) and open questions as they are said. Two executive nudges join the coaching: *Invite the room* and *Commit to a position*. |
+| **Growth** | Your communication trend by meeting type (1:1, all-hands, vendor update, …): fillers, hedges, answer-first, open questions, decisiveness, *we vs I*, talk share. *Say it better* turns your weakest real lines into practice drills. See [Measuring your growth](#growth). |
+| **Leadership** | Commitment ledger (what you and others promised, with due dates and reminders), team radar (who is quiet, recurring concerns), weekly digest and a narrative check that tests a message against your recent meetings. |
 | **Post-meeting synthesis** | On-demand executive summary per meeting (Reports → Generate), strategic alternatives, metrics history and daily reports. |
 
 ---
@@ -144,6 +148,23 @@ Script markup:
 
 You can also click any word to jump there. Text size, eye line, width, height, background opacity, mirroring (for beam-splitter glass) and the pace band are under **Prompter display**.
 
+### 5. Prepare, track and grow
+<a id="growth"></a>
+
+- **Before a meeting:** Dashboard → add a title and attendees, then **Build brief**, or use **Prepare** for a full brief, a rehearsal or your stakeholder map. Set **Your name** in Settings so commitments assigned to you are recognised.
+- **During:** the HUD tracker strip lists decisions, actions and open questions. They are saved with the meeting and feed the commitment ledger.
+- **After:** commitments sync from the live tracker and the generated summary. **Leadership** keeps the ledger, team radar, weekly digest and narrative check.
+
+**How growth is measured when both voices can reach the mic.** The *Me* channel is the mic, so in a room or on speakers it also hears other people. The app does not try to tell voices apart. Instead it:
+
+1. removes mic lines that echo what the loopback channel heard;
+2. rates each meeting **verified** (mostly you), **mixed** or **excluded**, and lets you override the rating per meeting (Reports → People & attribution or Growth → Attribution);
+3. builds trends from verified meetings and rehearsals by default (*Include mixed* is optional), and compares each metric only within the same meeting type.
+
+Wear a headset for the meetings you want measured, and talk share and pacing become exact. Voice enrollment and voice rehearsal are future work.
+
+LLM features (brief, rehearsal, digest, narrative check, rewrites) use your local LLM or, in hybrid mode, the external provider. While a meeting is live they wait unless the external provider is on, so they never slow live coaching. Everything else is computed locally without an LLM.
+
 ---
 
 ## Configuration
@@ -156,6 +177,7 @@ Most settings live in the app (**Settings**) and are stored in the local SQLite 
 | ASR device | `auto` | Force `gpu` or `cpu`; manual choices are validated against your machine's measurements |
 | Adaptive governor | on | Steps profiles down/up at runtime based on measured lag |
 | Filler words / jargon | sensible defaults | Comma-separated |
+| Your name | empty | Used to recognise your commitments and attribute action items |
 
 Environment variables:
 
@@ -236,6 +258,8 @@ backend/
   hardware.py        CPU/GPU/memory/power probing
   coach_engine.py    trigger detection + LLM coaching cards
   telemetry.py       pacing, fillers, airtime, sentiment
+  leadership.py      brief, rehearsal, stakeholders, commitments, growth, digest API
+  leadership_analysis.py  deterministic growth metrics, attribution, live decision tracker
   tests/
 app/
   electron/          main process, HUD window, preload bridge

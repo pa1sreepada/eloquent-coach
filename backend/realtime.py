@@ -2,7 +2,7 @@
 
     /ws/audio/{meeting_id}   client → server: 80 ms interleaved stereo float32 frames (L=Me, R=Participant)
                              server → client: same events as /ws/events (back-compat for the main window)
-    /ws/events/{meeting_id}  server → client only: transcript partial/final, telemetry, card, asr_status
+    /ws/events/{meeting_id}  server → client only: transcript partial/final, telemetry, card, asr_status, tracker
     GET  /asr/status         hardware, power, calibration, recommended plan, live channel states
     POST /asr/calibrate      re-measure this machine (background, refused during a meeting)
     POST /asr/validate       {asr_backend, asr_profile} → plan + plain-language warnings (Settings guardrail)
@@ -24,7 +24,8 @@ import llm_provider
 from asr_service import STREAM_PROFILES, AsrEvent, StreamingTranscriptionService, resolve_model_paths
 from coach_engine import CoachingEngine, LlmCoordinator, OpenAICompatClient
 from hardware import HardwareInfo, PowerState, llm_is_local, probe_hardware, read_power_state
-from database import AppConfig, Insight, Meeting, SessionLocal, Transcript
+from database import AppConfig, Insight, Meeting, MeetingItem, SessionLocal, Transcript
+from leadership_analysis import DecisionTracker
 from telemetry import DEFAULT_FILLERS, SpeechTelemetry
 
 logger = logging.getLogger(__name__)
@@ -252,6 +253,16 @@ def _persist_card(meeting_id: int, card: dict) -> None:
         db.close()
 
 
+def _persist_items(meeting_id: int, items: list[dict]) -> None:
+    db = SessionLocal()
+    try:
+        db.add_all(MeetingItem(meeting_id=meeting_id, kind=i["kind"], text=i["text"], owner=i["owner"],
+                               speaker=i["speaker"], t_ms=i["t_ms"]) for i in items)
+        db.commit()
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------- per-meeting session
 class MeetingSession:
     def __init__(self, meeting_id: int, meta: dict, cfg: RealtimeConfig, rt: AsrRuntime):
@@ -275,6 +286,7 @@ class MeetingSession:
             instructions=cfg.coach_instructions, telemetry=SpeechTelemetry(fillers=cfg.filler_words),
             coordinator=LlmCoordinator(self.controller, llm_local=cfg.llm_local,
                                        me_speaking=lambda: self.asr.in_utterance("Me")))
+        self.tracker = DecisionTracker()   # live decisions / owners / parked topics for the HUD
         self._bg: set[asyncio.Task] = set()
         logger.info("meeting %s: ASR plan (%s) %s | %s", meeting_id, self.plan.source,
                     {s: f"{c.device}/{c.profile}" for s, c in self.plan.channels.items()},
@@ -304,6 +316,10 @@ class MeetingSession:
         if ev.type == "final":
             self._spawn(asyncio.to_thread(_persist_final, self.meeting_id,
                                           self.meta["start"], payload))
+            new_items = self.tracker.ingest(ev.speaker, ev.text, ev.t0_ms)
+            if new_items:
+                bus.publish(self.meeting_id, self.tracker.snapshot())
+                self._spawn(asyncio.to_thread(_persist_items, self.meeting_id, new_items))
             # Telemetry is sub-ms; the LLM call inside is spawned, never awaited here.
             await self.coach.on_final(ev.speaker, ev.text, ev.t0_ms, ev.t1_ms)
 
@@ -383,6 +399,9 @@ async def audio_ws(ws: WebSocket, meeting_id: int):
 async def events_ws(ws: WebSocket, meeting_id: int):
     await ws.accept()
     q = bus.subscribe(meeting_id)
+    session = live_session(meeting_id)
+    if session is not None and session.tracker.items:   # a HUD that (re)connects mid-meeting
+        q.put_nowait(session.tracker.snapshot())
     pump = asyncio.create_task(_pump(ws, q))
     try:
         while True:

@@ -588,3 +588,13 @@ test_thinking_setting()
 test_streaming()
 test_external_llm()
 print("llm providers ok")
+
+# Executive presence nudges: repeated hedging, and a long run of telling without asking.
+h = SpeechTelemetry()
+for i in range(4):
+    h.ingest("Me", "I think maybe we could probably sort of try it, I guess.", i * 10_000, i * 10_000 + 9_000)
+assert "COMMIT TO A POSITION" in h.snapshot().alerts, h.snapshot().alerts
+r = SpeechTelemetry()
+for i in range(8):
+    r.ingest("Me", "Here is the plan for the quarter and the reasons behind it in detail.", i * 10_000, i * 10_000 + 9_500)
+assert "INVITE THE ROOM" in r.snapshot().alerts, r.snapshot().alerts

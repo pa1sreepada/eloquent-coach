@@ -21,7 +21,7 @@ interface Insight {
 
 const EMPTY_METRICS = { talkTime: 0, pacing: 0, fillerCount: 0, sharePct: 0 };
 
-export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNotes = '', onStopMeeting }: { isRecording: boolean, mode: string, agenda?: string, prepNotes?: string, onStopMeeting: (meetingId?: number | null) => void }) {
+export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNotes = '', title = '', attendees = '', onStopMeeting }: { isRecording: boolean, mode: string, agenda?: string, prepNotes?: string, title?: string, attendees?: string, onStopMeeting: (meetingId?: number | null) => void }) {
   const [transcripts, setTranscripts] = useState<Line[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [isMuted, setIsMuted] = useState(false);
@@ -135,7 +135,7 @@ export default function LiveMeetingView({ isRecording, mode, agenda = '', prepNo
   useEffect(() => {
     if (isRecording && !meetingId && !isInitializingRef.current) {
       isInitializingRef.current = true;
-      fetch(`${API}/meetings/?mode=${encodeURIComponent(mode)}&agenda=${encodeURIComponent(agenda)}&prep_notes=${encodeURIComponent(prepNotes)}`, { method: 'POST' })
+      fetch(`${API}/meetings/?mode=${encodeURIComponent(mode)}&agenda=${encodeURIComponent(agenda)}&prep_notes=${encodeURIComponent(prepNotes)}&title=${encodeURIComponent(title)}&attendees=${encodeURIComponent(attendees)}`, { method: 'POST' })
         .then(res => res.json())
         .then(data => {
           setMeetingId(data.meeting_id);

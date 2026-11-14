@@ -20,6 +20,8 @@ interface Meeting {
 interface MeetingDetails extends Meeting {
   mode: string;
   agenda?: string;
+  attendees?: string;
+  attribution?: string;
   lps_score: number | null;
   transcripts: { id: number; speaker: string; text: string; timestamp: string }[];
   insights?: { id: number; kind: string; headline: string; body?: string | null; timestamp: string }[];
@@ -371,6 +373,8 @@ export default function ReportsView({ initialMeetingId }: { initialMeetingId?: n
                     </div>
                   )}
                   {d.agenda && <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginTop: '0.4rem' }}>Goal: {d.agenda}</div>}
+                  <PeopleAndAttribution key={`pa-${d.id}`} d={d}
+                    onSaved={(patch) => setMeetingDetails(md => (md && md.id === d.id ? { ...md, ...patch } : md))} />
                 </div>
                 <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
                   <button className="icon-btn" onClick={handleExportMarkdown} title="Export as Markdown (summary, live coaching, transcript)">
@@ -664,6 +668,55 @@ function EditableTitle({ value, onSave }: { value: string; onSave: (title: strin
     <div className="editable-title" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.3rem' }}>
       <h1 onClick={begin} title="Click to rename" style={{ fontSize: '1.5rem', margin: 0, cursor: 'text' }}>{value}</h1>
       <button className="icon-btn" onClick={begin} title="Rename meeting" aria-label="Rename meeting"><Pencil size={14} /></button>
+    </div>
+  );
+}
+
+
+const ATTRIBUTION_HELP: Record<string, string> = {
+  auto: 'Auto: the app judges whether the "Me" channel is really you (it may pick up the room when you’re on speakers).',
+  verified: 'Verified: the "Me" channel is only you (headset). Counts fully toward your Growth trends.',
+  mixed: 'Mixed: the mic also caught other people. Only counted in Growth if you include mixed meetings.',
+  exclude: 'Exclude: not your speech (e.g. you were listening to a talk). Never counted in Growth.',
+};
+
+/** Attendees power briefs, the stakeholder map and team radar; attribution decides if this meeting counts toward Growth. */
+function PeopleAndAttribution({ d, onSaved }: { d: MeetingDetails; onSaved: (patch: Partial<MeetingDetails>) => void }) {
+  const [attendees, setAttendees] = useState(d.attendees || '');
+  const [error, setError] = useState<string | null>(null);
+  const saveAttendees = async () => {
+    if (attendees.trim() === (d.attendees || '')) return;
+    setError(null);
+    const res = await fetch(`${API}/meetings/${d.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendees }),
+    }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok) { setError(data?.detail || 'Could not save attendees.'); return; }
+    setAttendees(data.attendees);
+    onSaved({ attendees: data.attendees });
+  };
+  const setAttribution = async (attribution: string) => {
+    setError(null);
+    const res = await fetch(`${API}/meetings/${d.id}/attribution`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attribution }),
+    }).catch(() => null);
+    if (!res?.ok) { setError('Could not change attribution.'); return; }
+    onSaved({ attribution });
+  };
+  const attribution = d.attribution || 'auto';
+  return (
+    <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap', fontSize: '0.82rem' }}>
+      <input className="field" value={attendees} onChange={e => setAttendees(e.target.value)} onBlur={saveAttendees}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        placeholder="Attendees, e.g. Sarah Lee, Raj" style={{ flex: '1 1 220px', padding: '0.35rem 0.6rem', fontSize: '0.82rem' }}
+        title="Comma-separated. Used for pre-meeting briefs, the stakeholder map and team radar." />
+      <select className="type-select" value={attribution} onChange={e => setAttribution(e.target.value)} title={ATTRIBUTION_HELP[attribution]}>
+        <option value="auto">My voice: auto</option>
+        <option value="verified">My voice: verified (headset)</option>
+        <option value="mixed">My voice: mixed with room</option>
+        <option value="exclude">Exclude from Growth</option>
+      </select>
+      {error && <span style={{ color: '#ef4444' }}>{error}</span>}
     </div>
   );
 }

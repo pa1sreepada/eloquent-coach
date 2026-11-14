@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from database import (init_db, get_db, Meeting, AppConfig, SessionLocal, Transcript, Insight, Metrics,
-                      LegacyTranscriptFile, DB_PATH)
+                      LegacyTranscriptFile, DB_PATH, LEADERSHIP_TABLES)
 import secure_store
 import api_auth
 from lm_studio_client import LMStudioClient
@@ -24,6 +24,8 @@ from post_meeting_synthesis import PostMeetingSynthesis, format_summary
 from report_generator import ReportGenerator
 import realtime
 import prompter
+import leadership
+import leadership_analysis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,6 +44,7 @@ app.add_middleware(
 )
 app.include_router(realtime.router)
 app.include_router(prompter.router)
+app.include_router(leadership.router)
 
 lm_client: LMStudioClient | None = None
 metrics_engine: MetricsEngine | None = None
@@ -66,6 +69,7 @@ def init_default_settings(db: Session):
         "asr_adaptive": "true",
         "filler_words": "um,uh,ah,like,so,actually,basically,literally,you know",
         "custom_jargon": "OKRs,ARR,LTV,CAC,Kubernetes,SaaS,Q1,Q2,Q3,Q4,C-suite",
+        "leader_name": "",
     }
     for k, v in defaults.items():
         if not db.query(AppConfig).filter(AppConfig.key == k).first():
@@ -109,6 +113,7 @@ class SettingsUpdate(BaseModel):
     asr_adaptive: str = "true"
     filler_words: str
     custom_jargon: str
+    leader_name: str = ""
 
 
 @app.get("/settings")
@@ -120,6 +125,7 @@ def get_settings(db: Session = Depends(get_db)):
 @app.put("/settings")
 def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
     updates = settings.model_dump()
+    updates["leader_name"] = re.sub(r"\s+", " ", updates["leader_name"]).strip()[:80]
     updates["llm_allow_remote"] = "true" if llm_provider.parse_bool(updates["llm_allow_remote"]) else "false"
     try:
         updates["llm_api_url"] = llm_provider.check_url(updates["llm_api_url"], updates["llm_allow_remote"] == "true")
@@ -279,13 +285,16 @@ def read_root():
     return {"status": "ok", "message": "Eloquent Coach API is running"}
 
 @app.post("/meetings/")
-def start_meeting(mode: str = "General", agenda: str = "", prep_notes: str = "", db: Session = Depends(get_db)):
+def start_meeting(mode: str = "General", agenda: str = "", prep_notes: str = "", title: str = "", attendees: str = "",
+                  db: Session = Depends(get_db)):
     now = datetime.datetime.utcnow()
     timestamp_str = now.strftime("%Y-%m-%d %H:%M")
 
     # Text-only persistence: transcript, cards, metrics and summary live in the DB.
     # No audio and no per-meeting .txt files are written.
-    new_meeting = Meeting(title=f"Meeting - {timestamp_str}", start_time=now, mode=mode, agenda=agenda, prep_notes=prep_notes)
+    title = re.sub(r"\s+", " ", title).strip()[:MAX_TITLE_CHARS] or f"Meeting - {timestamp_str}"
+    attendees = ", ".join(leadership_analysis.parse_attendees(attendees[:MAX_ATTENDEES_CHARS])) or None
+    new_meeting = Meeting(title=title, start_time=now, mode=mode, agenda=agenda, prep_notes=prep_notes, attendees=attendees)
     db.add(new_meeting)
     db.commit()
     db.refresh(new_meeting)
@@ -304,6 +313,11 @@ async def end_meeting(meeting_id: int, db: Session = Depends(get_db)):
             metrics_engine.update_metrics(meeting_id)
         except Exception as err:
             logger.warning(f"Error calculating final metrics on meeting end: {err}")
+        try:   # owners named live go straight into the commitment ledger; the briefing refines them later
+            leader = (db.query(AppConfig).filter(AppConfig.key == "leader_name").first() or AppConfig(value="")).value or ""
+            leadership.sync_meeting_commitments(db, meeting, leader)
+        except Exception as err:  # noqa: BLE001
+            logger.warning("Commitment sync on meeting end failed: %s", err)
             
         # The executive summary is generated on demand from Reports, so the LLM stays free for the next meeting.
         return {"status": "ended", "meeting_id": meeting_id}
@@ -388,6 +402,8 @@ def get_meeting_details(meeting_id: int, db: Session = Depends(get_db)):
         "strategic_alternatives": meeting.strategic_alternatives,
         "notes": meeting.notes,
         "followup_email": meeting.followup_email,
+        "attendees": meeting.attendees or "",
+        "attribution": meeting.attribution or "auto",
         "transcripts": transcripts,
         "insights": _insights(meeting),
         "metrics": metrics
@@ -456,7 +472,7 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Meeting not found")
     if any(s.meeting_id == meeting_id for s in realtime.runtime.sessions):
         raise HTTPException(409, "This meeting is still live. End it before deleting.")
-    for model in (Transcript, Insight, Metrics, LegacyTranscriptFile):
+    for model in (Transcript, Insight, Metrics, LegacyTranscriptFile, *LEADERSHIP_TABLES):
         db.query(model).filter(model.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()
@@ -466,18 +482,22 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
 
 MAX_TITLE_CHARS = 120
 MAX_MODE_CHARS = 80
+MAX_ATTENDEES_CHARS = 1000
 
 
 class MeetingUpdate(BaseModel):
     title: str | None = None
     mode: str | None = None   # meeting type; decides the summary sections next time it's generated
+    attendees: str | None = None   # comma-separated names; powers briefs, the stakeholder map and team radar
 
 
 @app.patch("/meetings/{meeting_id}")
 def update_meeting(meeting_id: int, body: MeetingUpdate, db: Session = Depends(get_db)):
     """Rename a meeting and/or change its type. Everything else links by id."""
-    if body.title is None and body.mode is None:
+    if body.title is None and body.mode is None and body.attendees is None:
         raise HTTPException(400, "Nothing to update.")
+    if body.attendees is not None and len(body.attendees) > MAX_ATTENDEES_CHARS:
+        raise HTTPException(400, f"Attendees must be {MAX_ATTENDEES_CHARS} characters or fewer.")
     title = mode = None
     if body.title is not None:
         title = re.sub(r"\s+", " ", body.title).strip()
@@ -496,8 +516,11 @@ def update_meeting(meeting_id: int, body: MeetingUpdate, db: Session = Depends(g
         meeting.mode = mode
     if title is not None:
         meeting.title = title
+    if body.attendees is not None:
+        meeting.attendees = ", ".join(leadership_analysis.parse_attendees(body.attendees)) or None
     db.commit()
-    return {"status": "updated", "meeting_id": meeting_id, "title": meeting.title, "mode": meeting.mode}
+    return {"status": "updated", "meeting_id": meeting_id, "title": meeting.title, "mode": meeting.mode,
+            "attendees": meeting.attendees or ""}
 
 
 SPEAKERS = ("Me", "Participant")
@@ -606,7 +629,7 @@ def reveal_storage():
     subprocess.run(["open", "-R", path])
     return {"status": "opened"}
 
-_synthesis_lock = asyncio.Lock()
+_synthesis_lock = leadership.LLM_LOCK   # summaries, follow-ups and leadership LLM features share one queue
 
 
 class NotesUpdate(BaseModel):
@@ -646,6 +669,17 @@ async def synthesize_meeting(meeting_id: int):
         return {"status": "error", "error": "Another executive summary is being generated. Try again when it finishes."}
     async with _synthesis_lock:
         summary = await PostMeetingSynthesis(lm_client).generate_summary(meeting_id)
+    try:
+        db = SessionLocal()
+        try:
+            meeting = db.get(Meeting, meeting_id)
+            if meeting and meeting.summary:
+                leader = (db.query(AppConfig).filter(AppConfig.key == "leader_name").first() or AppConfig(value="")).value or ""
+                leadership.sync_meeting_commitments(db, meeting, leader)
+        finally:
+            db.close()
+    except Exception as err:  # noqa: BLE001
+        logger.warning("Commitment sync after summary failed: %s", err)
     return {"status": "success", "summary": summary}
 
 @app.get("/reports/daily/{date_str}")
