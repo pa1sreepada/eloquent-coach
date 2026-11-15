@@ -61,7 +61,7 @@ class LMStudioClient:
             return None
         return external_llm.target_from_settings(c)
 
-    async def _complete_external(self, target: "external_llm.Target", system_prompt: str, user_content: str,
+    async def _complete_external(self, target: "external_llm.Target", system_prompt: str, user_content: str | list[dict],
                                  max_tokens: int, temperature: float) -> str:
         async with httpx.AsyncClient(**external_llm.client_kwargs(target.provider)) as client:
             try:
@@ -124,9 +124,10 @@ class LMStudioClient:
             ctx = await self._context_tokens(client, base_url, await self._resolve_model(client, base_url, configured))
         return max(2048, ctx - llm_provider.THINKING_EXTRA_TOKENS) if thinking else ctx
 
-    async def complete(self, system_prompt: str, user_content: str, *, max_tokens: int = 1000,
+    async def complete(self, system_prompt: str, user_content: str | list[dict], *, max_tokens: int = 1000,
                        temperature: float = 0.3) -> str:
         """One chat completion; returns "" on failure. Strips <think> blocks from reasoning models.
+        `user_content` is one user message, or a list of user/assistant turns for a multi-turn conversation.
         Uses the external frontier model instead of the local server when Settings turns it on."""
         self.last_error = None
         try:
@@ -145,7 +146,7 @@ class LMStudioClient:
                 payload = {
                     "model": await self._resolve_model(client, base_url, configured),
                     "messages": [{"role": "system", "content": system_prompt},
-                                 {"role": "user", "content": user_content}],
+                                 *external_llm._turns(user_content)],
                     "temperature": temperature,
                     "max_tokens": max_tokens + (llm_provider.THINKING_EXTRA_TOKENS if thinking else 0),
                     "stream": False,
@@ -163,7 +164,7 @@ class LMStudioClient:
                 data = response.json()
                 prompt_tokens = (data.get("usage") or {}).get("prompt_tokens")
                 if prompt_tokens:
-                    measured = (len(system_prompt) + len(user_content)) / prompt_tokens
+                    measured = (len(system_prompt) + len(str(user_content))) / prompt_tokens
                     self.chars_per_token = max(2.0, min(4.5, 0.5 * self.chars_per_token + 0.5 * measured))
                 choice = data["choices"][0]
                 content = choice["message"].get("content") or ""

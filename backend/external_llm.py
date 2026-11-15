@@ -129,13 +129,18 @@ async def list_models(client: httpx.AsyncClient, target: Target) -> list[str]:
     return sorted(i for i in ids if i and not any(k in i.lower() for k in _NON_CHAT))
 
 
-async def chat(client: httpx.AsyncClient, target: Target, system: str, user: str, *,
+def _turns(user: str | list[dict]) -> list[dict]:
+    """A single user message, or a whole conversation of user/assistant turns."""
+    return [{"role": "user", "content": user}] if isinstance(user, str) else list(user)
+
+
+async def chat(client: httpx.AsyncClient, target: Target, system: str, user: str | list[dict], *,
                max_tokens: int, temperature: float | None) -> dict:
     """One chat completion. Adapts to the API's quirks: newer OpenAI models want max_completion_tokens
     and reject a custom temperature."""
     limit_field = "max_completion_tokens" if target.provider in ("openai", "azure") else "max_tokens"
     payload: dict = {"model": target.model, "stream": False,
-                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+                     "messages": [{"role": "system", "content": system}, *_turns(user)]}
     if temperature is not None:
         payload["temperature"] = temperature
     for _ in range(3):

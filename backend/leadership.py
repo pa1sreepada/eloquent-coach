@@ -76,7 +76,7 @@ def _busy_reason() -> str | None:
     return "A meeting is in progress. Try again after it ends so live coaching stays fast."
 
 
-async def _ask_llm(system: str, user: str, max_tokens: int, temperature: float = 0.3) -> str:
+async def _ask_llm(system: str, user: str | list[dict], max_tokens: int, temperature: float = 0.3) -> str:
     reason = _busy_reason()
     if reason:
         raise HTTPException(409, reason)
@@ -773,19 +773,27 @@ PERSONAS: dict[str, tuple[str, str]] = {
     "board_member": ("Board member", "an experienced independent board member. You ask about strategy, competition, why now, key risks and what would prove the plan wrong."),
     "ceo": ("Time-poor CEO", "the CEO, with five minutes. You want the bottom line first and cut off rambling: 'What do you need from me?'"),
     "upset_report": ("Upset direct report", "a capable direct report who feels overlooked for a promotion. You are emotional and want to be heard; you escalate if dismissed and calm down if genuinely acknowledged."),
-    "peer_conflict": ("Peer who disagrees", "a peer leader who disagrees with the plan because it costs your team headcount. You defend your turf but can be won over by a shared goal."),
+    "peer_conflict": ("Peer who disagrees", "a peer leader who disagrees with the leader's approach and protects your own team's goals, workload and credibility. You can be won over by a shared goal and a concrete plan."),
     "customer_exec": ("Demanding customer exec", "a demanding customer executive after a service incident. You want accountability, a concrete fix and a date, not excuses."),
     "vendor": ("Vendor pushing a renewal", "a vendor account executive pushing a renewal with a price increase. You use urgency and anchoring; you concede only for commitments."),
     "all_hands": ("All-hands audience Q&A", "employees at an all-hands Q&A. You ask the hard questions people whisper about: job security, strategy changes, workload and culture. Change who is asking each time."),
 }
 
-PERSONA_RULES = """You are role-playing {who} in a practice conversation with a senior leader who is rehearsing to become a more confident, authentic executive communicator.
-Rules:
-- Stay in character. Never coach, never break character, never mention you are an AI. No stage directions.
-- Speak like a real person in a meeting: 1-3 sentences, one question or challenge at a time.
-- React to the quality of the last answer: if it was vague, hedged or evasive, press harder on that point; if it was clear, answer-first and specific, acknowledge it briefly and move to the next hard question.
-- Stay realistic and tough but fair.
-SCENARIO: {scenario}"""
+PERSONA_RULES = """You are {who}
+You are in a meeting with a senior leader who is practising a hard conversation. Every user message is what the leader just said to you.
+The situation, in the leader's own words ("I", "we", "my team" mean the leader). If it mentions the person the leader is facing (for example "my Product peer"), that person is you: say "I" and "my team", never talk about yourself in the third person.
+{scenario}
+How to talk:
+- Speak as yourself, directly to the leader, like a real person in a meeting: 1-3 sentences, one question or challenge at a time.
+- If their answer is vague, hedged or evasive, press on it. If it is clear, specific and owns the issue, acknowledge it briefly and raise your next concern.
+- Tough but fair and realistic. Use concrete, plausible details, never placeholders in brackets. Never coach the leader, never mention AI or role-play.
+Put exactly the words you say out loud inside <say></say>, for example: <say>Why am I hearing about this from my users first?</say>"""
+
+OPENING_TURN = "(The meeting starts. You speak first.)"
+_SAY_RE = re.compile(r"<say>(.*?)(?:</say>|$)", re.S | re.I)
+_SPEAKER_RE = re.compile(r"^\s*(?:THEM|ME|\*\*[^*\n]{1,40}:\*\*|\*\*[^*\n]{1,40}\*\*:)\s*:?\s*")
+_REASONING_RE = re.compile(r"^\s*(thinking process|thought process|the user|the leader|my goal|okay[,.]|let me|i need to|"
+                           r"analy[sz]|\d+\.\s|\*\*|#)", re.I)
 
 SCORECARD_PROMPT = """You are an executive communication coach reviewing a practice conversation. "ME" is the leader; "THEM" is the role-play partner. Judge only ME.
 Reply in exactly this format:
@@ -822,6 +830,40 @@ def _rehearsal_json(r: Rehearsal) -> dict:
     return {"id": r.id, "persona": r.persona, "persona_label": label, "scenario": r.scenario, "turns": json.loads(r.turns or "[]"),
             "scores": json.loads(r.scores) if r.scores else None, "feedback": r.feedback,
             "created_at": r.created_at.isoformat() if r.created_at else None}
+
+
+def _persona_messages(turns: list[dict]) -> list[dict]:
+    """The rehearsal as real chat turns (persona = assistant, leader = user), so the model never mixes up who said what."""
+    recent = turns[-16:]
+    msgs = [] if recent and recent[0]["role"] == "me" else [{"role": "user", "content": OPENING_TURN}]
+    for t in recent:
+        msgs.append({"role": "user", "content": t["text"]} if t["role"] == "me"
+                    else {"role": "assistant", "content": f"<say>{t['text']}</say>"})
+    return msgs
+
+
+def spoken_line(raw: str) -> str | None:
+    """What the persona says out loud. Small local models often write their reasoning as plain text,
+    so only the <say> part counts; untagged text is accepted only when it doesn't read like reasoning."""
+    said = [s.strip() for s in _SAY_RE.findall(raw) if s.strip()]
+    text = _SPEAKER_RE.sub("", said[-1] if said else raw.strip())
+    if not said and (_REASONING_RE.match(text) or len(text) > 600):
+        return None
+    text = text.strip().strip('"“”').strip()
+    return text or None
+
+
+async def _persona_reply(system: str, turns: list[dict]) -> str:
+    msgs = _persona_messages(turns)
+    for attempt in range(2):
+        # Room for a model that thinks out loud before the <say> line.
+        raw = await _ask_llm(system, msgs, max_tokens=700, temperature=0.8 if attempt == 0 else 0.5)
+        line = spoken_line(raw)
+        if line:
+            return line
+        logger.info("rehearsal: reply had no spoken line (attempt %d): %.120r", attempt + 1, raw)
+    raise HTTPException(502, "The model wrote its reasoning instead of a reply. Try again, or pick a different model "
+                             "in Settings (small reasoning models are the usual cause).")
 
 
 def _conversation(turns: list[dict]) -> str:
@@ -883,7 +925,7 @@ async def start_rehearsal(body: RehearsalIn, db: Session = Depends(get_db)):
         raise HTTPException(400, "Pick a persona or describe one.")
     scenario = body.scenario.strip() or "A routine but high-stakes conversation about the leader's current top priority."
     system = PERSONA_RULES.format(who=PERSONAS[persona][1] if persona in PERSONAS else persona, scenario=scenario)
-    opening = await _ask_llm(system, "Open the conversation with your first question or challenge.", max_tokens=160, temperature=0.8)
+    opening = await _persona_reply(system, [])
     r = Rehearsal(persona=persona, scenario=scenario, turns=json.dumps([{"role": "them", "text": opening}]))
     db.add(r)
     db.commit()
@@ -900,8 +942,7 @@ async def rehearsal_turn(rid: int, body: TurnIn, db: Session = Depends(get_db)):
     feedback = _turn_feedback(body.text, previous, _fillers(_cfg(db)))
     turns.append({"role": "me", "text": body.text.strip(), "feedback": feedback})
     system = PERSONA_RULES.format(who=_persona(r), scenario=r.scenario)
-    reply = await _ask_llm(system, _conversation(turns[-16:]) + "\n\nReply as THEM, in character.", max_tokens=160, temperature=0.8)
-    reply = re.sub(r"^\s*THEM:\s*", "", reply)
+    reply = await _persona_reply(system, turns)
     turns.append({"role": "them", "text": reply})
     r.turns, r.updated_at = json.dumps(turns), dt.datetime.utcnow()
     db.commit()
@@ -916,7 +957,9 @@ async def finish_rehearsal(rid: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "Answer at least once before finishing.")
     lines = [la.Line("Me" if t["role"] == "me" else "Participant", t["text"]) for t in turns]
     stats = la.analyze_meeting(lines, _fillers(_cfg(db)), override="verified")["stats"]
-    raw = await _ask_llm(SCORECARD_PROMPT, f"SCENARIO: {r.scenario}\n\n{_conversation(turns)}"[:30000], max_tokens=700)
+    raw = await _ask_llm(SCORECARD_PROMPT, f"SCENARIO: {r.scenario}\n\n{_conversation(turns)}"[:30000], max_tokens=1400)
+    if "SCORES:" in raw:   # drop any reasoning written before the scorecard
+        raw = raw[raw.rfind("SCORES:"):]
     scores = {}
     m = re.search(r"SCORES:\s*(.+)", raw)
     if m:

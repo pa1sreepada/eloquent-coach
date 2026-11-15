@@ -23,7 +23,7 @@ No audio, transcripts, or prompts leave your computer unless you point it at a r
 | **Telemetry** | Talk-time share, words per minute, filler words, hedges, monologue length, wait time after questions, interruptions, and room sentiment. |
 | **Teleprompter HUD** | Transparent, click-through, always-on-top overlay with a card deck that auto-advances with the conversation, plus a script aligner that follows your prepared talking points as you speak. |
 | **Voice-following teleprompter** | Write or import a script, then float it under your camera. It scrolls as you speak, keeps up with fillers, ad-libs and paraphrasing, and picks up wherever you rejoin. Every read-through is scored. See [Teleprompter](#teleprompter). |
-| **Prepare** | One-click pre-meeting brief (open commitments, history with each attendee, what they care about, likely pushback), AI rehearsal partners (skeptical CFO, board member, upset direct report, …) with a scorecard, and a stakeholder map that learns from your meetings. |
+| **Prepare** | One-click pre-meeting brief (open commitments, history with each attendee, what they care about, likely pushback), AI rehearsal partners (skeptical CFO, board member, upset direct report, …) you can talk to out loud (on-device speech-to-text, optional spoken replies) with a scorecard, and a stakeholder map that learns from your meetings. |
 | **Voice profile** | Read a short passage once and the app learns your voice (a 192-number voiceprint, never audio). Every mic line is then labelled **You**, **Room** (someone else near your mic), **Speaker echo** (your speakers leaking into the mic) or **You?**. Only your lines feed coaching and growth. See [Your voice profile](#voice). |
 | **Live decision tracker** | The HUD shows decisions, action items (with owners) and open questions as they are said. Two executive nudges join the coaching: *Invite the room* and *Commit to a position*. |
 | **Growth** | Your communication trend by meeting type (1:1, all-hands, vendor update, …): fillers, hedges, answer-first, open questions, decisiveness, *we vs I*, talk share. *Say it better* turns your weakest real lines into practice drills. See [Measuring your growth](#growth). |
@@ -153,6 +153,7 @@ You can also click any word to jump there. Text size, eye line, width, height, b
 <a id="growth"></a>
 
 - **Before a meeting:** Dashboard → add a title and attendees, then **Build brief**, or use **Prepare** for a full brief, a rehearsal or your stakeholder map. Set **Your name** in Settings so commitments assigned to you are recognised.
+- **Rehearse:** pick who you're facing and describe the situation in your own words ("I" is you; "my Product peer" is who the AI plays). They speak first. Answer with the 🎤 button or by typing; turn on **Voice conversation** to hear their lines and have the mic reopen for your answer. Speech is transcribed on this Mac and never recorded.
 - **During:** the HUD tracker strip lists decisions, actions and open questions. They are saved with the meeting and feed the commitment ledger.
 - **After:** commitments sync from the live tracker and the generated summary. **Leadership** keeps the ledger, team radar, weekly digest and narrative check.
 

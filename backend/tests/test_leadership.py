@@ -63,6 +63,7 @@ main.app.dependency_overrides[main.get_db] = override_db
 client = TestClient(main.app, base_url="http://127.0.0.1:8000", headers={"Authorization": f"Bearer {TOKEN}"})
 
 calls = []
+persona_replies: list[str] = []   # queued raw persona outputs; default below when empty
 
 
 async def fake_complete(system, user, max_tokens=0, temperature=0.0):
@@ -70,9 +71,13 @@ async def fake_complete(system, user, max_tokens=0, temperature=0.0):
     if "Rewrite what a senior leader said" in system:
         return "BETTER: We'll hold enterprise pricing.\nWHY: answer first"
     if "reviewing a practice conversation" in system:
-        return "SCORES: clarity=7, confidence=6, listening=8, persuasion=5, presence=7\nSTRENGTHS:\n- clear"
-    if "role-playing" in system:
-        return "THEM: What's the payback period?"
+        return ("Thinking Process:\n1. Judge ME only.\n"
+                "SCORES: clarity=7, confidence=6, listening=8, persuasion=5, presence=7\nSTRENGTHS:\n- clear")
+    if "practising a hard conversation" in system:
+        if persona_replies:
+            return persona_replies.pop(0)
+        # What small local models do: reasoning in plain text, then the tagged line.
+        return "Thinking Process:\n1. **Analyze** the leader's answer.\n<say>What's the payback period?</say>"
     return "## Brief\n- ok"
 
 leadership._llm.complete = fake_complete
@@ -142,11 +147,24 @@ assert client.get("/generated-docs?kind=brief").json()[0]["content"] == "## Brie
 
 # Rehearsal: open, answer (per-turn feedback), finish (scorecard).
 rh = client.post("/rehearsals", json={"persona": "skeptical_cfo", "scenario": "Budget ask"}).json()
-assert rh["turns"][0]["text"] == "THEM: What's the payback period?" or rh["turns"][0]["role"] == "them"
+assert rh["turns"] == [{"role": "them", "text": "What's the payback period?"}], rh
+assert calls[-1][1] == [{"role": "user", "content": leadership.OPENING_TURN}], calls[-1]
 turn = client.post(f"/rehearsals/{rh['id']}/turn", json={"text": "Um, I think maybe, like, it kind of depends."}).json()
 assert turn["reply"] == "What's the payback period?" and turn["feedback"]["tips"], turn
+# The leader's answer goes in as the user's own turn, never relabelled as the persona's.
+assert [m["role"] for m in calls[-1][1]] == ["user", "assistant", "user"], calls[-1]
+assert calls[-1][1][2]["content"] == "Um, I think maybe, like, it kind of depends."
+persona_replies[:] = ["Thinking Process:\n1. The leader is deflecting.", "The user wants me to press harder."]
+r502 = client.post(f"/rehearsals/{rh['id']}/turn", json={"text": "It's handled."})
+assert r502.status_code == 502 and "reasoning" in r502.json()["detail"], r502.text
+persona_replies[:] = ["Fair. So who owns the fix, and by when?"]   # an untagged, clean reply is fine
+assert client.post(f"/rehearsals/{rh['id']}/turn", json={"text": "I own it; Friday."}).json()["reply"] == "Fair. So who owns the fix, and by when?"
 done = client.post(f"/rehearsals/{rh['id']}/finish").json()
 assert done["scores"]["scores"]["clarity"] == 7 and done["scores"]["stats"]["me_words"] > 0, done
+assert "Thinking" not in done["feedback"] and done["feedback"].startswith("STRENGTHS"), done["feedback"]
+assert leadership.spoken_line('<say>"Who owns it?"</say>') == "Who owns it?"
+assert leadership.spoken_line("**Peer:** Who owns it?") == "Who owns it?"
+assert leadership.spoken_line("<say>First</say> more thinking <say>Final line") == "Final line"
 assert client.get("/growth").json()["practice"]["count"] == 1
 
 # Meeting fields and delete cascade.

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Play, Plus, Send, Sparkles, Trash2, Flag, Save } from 'lucide-react';
+import { Play, Plus, Send, Sparkles, Trash2, Flag, Save, Mic, MicOff, Loader2, Volume2 } from 'lucide-react';
+import { speak, stopSpeaking, useDictation } from './useDictation';
 import { api, errText, usePeople } from './leadershipApi';
 import { CopyButton, ErrorLine, MiniMarkdown, Muted, Panel, PeopleList, Tabs } from './leadershipUi';
 import { MODES } from './meetingModes';
@@ -94,84 +95,115 @@ function Rehearse() {
   const [r, setR] = useState<RehearsalT | null>(null);
   const [history, setHistory] = useState<RehearsalSummary[]>([]);
   const [answer, setAnswer] = useState('');
+  const [pending, setPending] = useState<string | null>(null);   // my answer, shown while they think
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [voiceMode, setVoiceMode] = useState(() => localStorage.getItem('rehearsalVoiceMode') === '1');
   const bottom = useRef<HTMLDivElement>(null);
+  const scenarioMic = useDictation(setScenario);
+  const answerMic = useDictation(setAnswer);
 
+  useEffect(() => { localStorage.setItem('rehearsalVoiceMode', voiceMode ? '1' : '0'); if (!voiceMode) stopSpeaking(); }, [voiceMode]);
+  useEffect(() => () => stopSpeaking(), []);
   const loadHistory = useCallback(() => api<RehearsalSummary[]>('/rehearsals').then(setHistory).catch(() => {}), []);
   useEffect(() => { api<Persona[]>('/rehearsals/personas').then(setPersonas).catch(() => {}); void loadHistory(); }, [loadHistory]);
-  useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [r?.turns.length, r?.feedback]);
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [r?.turns.length, r?.feedback, pending, busy]);
 
-  const step = async (label: string, fn: () => Promise<void>) => {
-    setBusy(label); setError(null);
+  const label = r?.persona_label ?? personas.find(p => p.id === persona)?.label ?? 'They';
+  // Voice mode: they speak their line, then the mic opens for my answer.
+  const theySay = async (text: string) => {
+    if (!voiceMode) return;
+    await speak(text);
+    void answerMic.begin('');
+  };
+  const step = async (name: string, fn: () => Promise<void>) => {
+    setBusy(name); setError(null);
     try { await fn(); } catch (e) { setError(errText(e)); } finally { setBusy(null); }
   };
   const start = () => step('start', async () => {
-    setR(await api<RehearsalT>('/rehearsals', { body: { persona, custom_persona: custom, scenario } }));
+    scenarioMic.end();
+    const res = await api<RehearsalT>('/rehearsals', { body: { persona, custom_persona: custom, scenario } });
+    setR(res);
+    void theySay(res.turns[0]?.text ?? '');
   });
-  const send = () => r && answer.trim() && step('turn', async () => {
+  const send = () => {
     const text = answer.trim();
-    const res = await api<{ reply: string; feedback: TurnFeedback }>(`/rehearsals/${r.id}/turn`, { body: { text } });
-    setAnswer('');
-    setR({ ...r, turns: [...r.turns, { role: 'me', text, feedback: res.feedback }, { role: 'them', text: res.reply }] });
+    if (!r || !text || busy) return;
+    answerMic.end(); stopSpeaking();
+    setPending(text); setAnswer('');
+    void step('turn', async () => {
+      try {
+        const res = await api<{ reply: string; feedback: TurnFeedback }>(`/rehearsals/${r.id}/turn`, { body: { text } });
+        setR({ ...r, turns: [...r.turns, { role: 'me', text, feedback: res.feedback }, { role: 'them', text: res.reply }] });
+        void theySay(res.reply);
+      } catch (e) { setAnswer(text); throw e; } finally { setPending(null); }
+    });
+  };
+  const finish = () => r && step('finish', async () => {
+    answerMic.end(); stopSpeaking();
+    setR(await api<RehearsalT>(`/rehearsals/${r.id}/finish`, { body: {} })); void loadHistory();
   });
-  const finish = () => r && step('finish', async () => { setR(await api<RehearsalT>(`/rehearsals/${r.id}/finish`, { body: {} })); void loadHistory(); });
   const open = (id: number) => step('open', async () => { setR(await api<RehearsalT>(`/rehearsals/${id}`)); });
-  const remove = async (id: number) => { await api(`/rehearsals/${id}`, { method: 'DELETE' }).catch(() => {}); if (r?.id === id) setR(null); void loadHistory(); };
+  const reset = () => { answerMic.end(); stopSpeaking(); setR(null); setAnswer(''); };
+  const remove = async (id: number) => { await api(`/rehearsals/${id}`, { method: 'DELETE' }).catch(() => {}); if (r?.id === id) reset(); void loadHistory(); };
 
   return (
     <>
       <Panel title="Rehearse a hard conversation">
         {!r ? (
           <>
-            <Muted>An AI plays the other side and presses harder when you hedge or ramble. Type your answers as you'd say them aloud; you get quick tips after each one and a scorecard at the end.</Muted>
+            <ol style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <li><strong>Pick who you're facing.</strong> The AI plays that person and only that person.</li>
+              <li><strong>Describe the situation from your side</strong>: who they are, what happened, what you need. "I" and "we" mean you.</li>
+              <li><strong>They speak first. Answer by talking or typing</strong>, exactly as you'd say it in the room. Each answer gets a quick tip; they push harder when you hedge or ramble.</li>
+              <li><strong>Finish & score</strong> for a scorecard with better lines to try.</li>
+            </ol>
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-              {[...personas, { id: 'custom', label: 'Custom…', description: '' }].map(p => (
+              {[...personas, { id: 'custom', label: 'Custom…', description: 'Describe the person yourself' }].map(p => (
                 <button key={p.id} title={p.description} onClick={() => setPersona(p.id)} className="btn"
                   style={{ borderColor: persona === p.id ? 'rgba(59,130,246,0.7)' : undefined, background: persona === p.id ? 'rgba(59,130,246,0.15)' : undefined }}>{p.label}</button>
               ))}
             </div>
-            {persona === 'custom' && <input className="field" placeholder="Describe who you're facing, e.g. a new CRO who wants my team's budget" value={custom} onChange={e => setCustom(e.target.value)} />}
-            <textarea className="field" rows={3} placeholder="Scenario: what's the conversation about? e.g. I'm asking for $2M to rebuild the data platform; payback in 18 months."
-              value={scenario} onChange={e => setScenario(e.target.value)} />
+            {persona === 'custom' && <input className="field" placeholder="Who are you facing? e.g. a new CRO who wants my team's budget" value={custom} onChange={e => setCustom(e.target.value)} />}
+            <DictationBox value={scenario} rows={3} mic={scenarioMic} onChange={setScenario}
+              placeholder="The situation, in your words. e.g. My Product peer is upset that we locked the Deals page in the CMS during the CDUI pilot without telling business users. I want to own the gap and agree a comms plan." />
             <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={start} disabled={!!busy || (persona === 'custom' && !custom.trim())}>
-              <Play size={14} fill="currentColor" /> {busy === 'start' ? 'Starting…' : 'Start rehearsal'}</button>
+              <Play size={14} fill="currentColor" /> {busy === 'start' ? `${label} is getting ready…` : 'Start rehearsal'}</button>
           </>
         ) : (
           <>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}><strong>{r.persona_label}</strong> · {r.scenario}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '420px', overflow: 'auto', paddingRight: '0.3rem' }}>
-              {r.turns.map((t, i) => (
-                <div key={i} style={{ alignSelf: t.role === 'me' ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
-                  <div style={{ padding: '0.55rem 0.8rem', borderRadius: '10px', fontSize: '0.9rem',
-                    background: t.role === 'me' ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.05)' }}>{t.text}</div>
-                  {t.feedback && (
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', marginTop: '0.2rem', textAlign: 'right' }}>
-                      {t.feedback.words} words · {t.feedback.answer_first ? 'answer first ✓' : 'buried the answer'}
-                      {t.feedback.tips.length > 0 && <span style={{ color: '#fbbf24' }}> · {t.feedback.tips.join(' ')}</span>}
-                    </div>
-                  )}
-                </div>
-              ))}
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>You're talking with <strong>{r.persona_label}</strong> · {r.scenario}</div>
+              {!r.feedback && (
+                <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                  title="They speak their lines aloud, then your mic opens for the answer">
+                  <input type="checkbox" checked={voiceMode} onChange={e => setVoiceMode(e.target.checked)} /> <Volume2 size={14} /> Voice conversation
+                </label>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '440px', overflow: 'auto', paddingRight: '0.3rem' }}>
+              {r.turns.map((t, i) => <Bubble key={i} turn={t} who={t.role === 'me' ? 'You' : r.persona_label} />)}
+              {pending && <Bubble turn={{ role: 'me', text: pending }} who="You" />}
+              {busy === 'turn' && <Bubble turn={{ role: 'them', text: '…' }} who={`${r.persona_label} is thinking`} faint />}
               <div ref={bottom} />
             </div>
             {r.feedback ? (
               <Scorecard r={r} />
             ) : (
               <>
-                <textarea className="field" rows={3} placeholder="Your answer… (⌘↩ to send)" value={answer} onChange={e => setAnswer(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void send(); }} />
+                <DictationBox value={answer} rows={3} mic={answerMic} onChange={setAnswer} onSubmit={send}
+                  placeholder={answerMic.listening ? 'Listening… speak your answer' : 'Your answer: press the mic and talk, or type. Enter sends, Shift+Enter for a new line.'} />
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                   <button className="btn" onClick={finish} disabled={!!busy || !r.turns.some(t => t.role === 'me')}>
                     <Flag size={14} /> {busy === 'finish' ? 'Scoring…' : 'Finish & score'}</button>
-                  <button className="btn btn-primary" onClick={send} disabled={!!busy || !answer.trim()}><Send size={14} /> {busy === 'turn' ? '…' : 'Send'}</button>
+                  <button className="btn btn-primary" onClick={send} disabled={!!busy || !answer.trim()}><Send size={14} /> Send</button>
                 </div>
               </>
             )}
-            <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => setR(null)}><Plus size={14} /> New rehearsal</button>
+            <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={reset}><Plus size={14} /> New rehearsal</button>
           </>
         )}
-        <ErrorLine error={error} />
+        <ErrorLine error={error ?? scenarioMic.error ?? answerMic.error} />
       </Panel>
       {history.length > 0 && (
         <Panel title="Past rehearsals">
@@ -187,6 +219,43 @@ function Rehearse() {
         </Panel>
       )}
     </>
+  );
+}
+
+function Bubble({ turn, who, faint }: { turn: Turn; who: string; faint?: boolean }) {
+  const me = turn.role === 'me';
+  return (
+    <div style={{ alignSelf: me ? 'flex-end' : 'flex-start', maxWidth: '80%', opacity: faint ? 0.6 : 1 }}>
+      <div style={{ fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.15rem', textAlign: me ? 'right' : 'left', color: me ? '#60a5fa' : '#34d399' }}>{who}</div>
+      <div style={{ padding: '0.55rem 0.8rem', borderRadius: '10px', fontSize: '0.9rem', whiteSpace: 'pre-wrap',
+        background: me ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.05)' }}>{turn.text}</div>
+      {turn.feedback && (
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', marginTop: '0.2rem', textAlign: 'right' }}>
+          {turn.feedback.words} words · {turn.feedback.answer_first ? 'answer first ✓' : 'buried the answer'}
+          {turn.feedback.tips.length > 0 && <span style={{ color: '#fbbf24' }}> · {turn.feedback.tips.join(' ')}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A text box with a mic button: talk (local speech-to-text) or type. */
+function DictationBox({ value, onChange, onSubmit, mic, rows, placeholder }: {
+  value: string; onChange: (v: string) => void; onSubmit?: () => void; mic: ReturnType<typeof useDictation>; rows: number; placeholder: string;
+}) {
+  const toggle = () => { if (mic.listening) mic.end(); else { stopSpeaking(); void mic.begin(value); } };
+  return (
+    <div style={{ position: 'relative' }}>
+      <textarea className="field" rows={rows} placeholder={placeholder} value={value} style={{ width: '100%', paddingRight: '3rem',
+        borderColor: mic.state === 'listening' ? 'rgba(248,113,113,0.7)' : undefined }}
+        onChange={e => { if (mic.listening) mic.end(); onChange(e.target.value); }}
+        onKeyDown={e => { if (onSubmit && e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit(); } }} />
+      <button type="button" className="icon-btn" onClick={toggle} style={{ position: 'absolute', right: '0.5rem', top: '0.5rem', color: mic.listening ? '#f87171' : undefined }}
+        title={mic.state === 'starting' ? 'Starting speech recognition…' : mic.listening ? 'Stop dictation' : 'Speak instead of typing (transcribed on this Mac, nothing is recorded)'}>
+        {mic.state === 'starting' ? <Loader2 size={16} className="spin" /> : mic.listening ? <MicOff size={16} /> : <Mic size={16} />}
+      </button>
+      {mic.state === 'listening' && <div style={{ fontSize: '0.72rem', color: '#f87171', marginTop: '0.2rem' }}>● Listening. Click the mic to stop{onSubmit ? ', or press Send when you are done' : ''}.</div>}
+    </div>
   );
 }
 
