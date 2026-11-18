@@ -62,6 +62,7 @@ Output: at most 2 cards; one strong card is usually best. headline <= 12 words (
 
 # Per-mode lens, matched by keyword against the meeting mode chosen in the UI.
 MODE_FOCUS = [
+    (("earnings",), "Quarterly earnings discussion. Track each figure against guidance or consensus as stated. If Me is presenting: headline number and beat/miss first, then the driver, then the outlook. If Me is listening: surface the driver behind a number, a business line that lagged, or a sharp question on margins, guidance or cash. Prefer 'question' cards and use only numbers that were said."),
     (("fireside", "guest"), "Me is the host interviewing a guest. Draw out specific stories: the moment, the decision, what they'd do differently, and the transferable lesson. Prefer 'question' cards; never debate the guest."),
     (("board", "investor"), "Board/investor audience. Answer bottom-line-first with numbers from PREP NOTES, anticipate diligence on growth, burn and risk, and keep answers short."),
     (("1:1", "feedback"), "Me is the manager. Name specific behavior and impact, ask more than tell, and close on an agreed next step."),

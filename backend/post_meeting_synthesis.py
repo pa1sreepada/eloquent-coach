@@ -23,8 +23,8 @@ _BRIEFING = """You are a senior executive coach writing the post-meeting briefin
 
 Rules:
 - Use only what is in the input. Never invent decisions, owners, dates, numbers or quotes.
-- Write for a busy reader skimming in Slack or email: short bullets of at most 20 words, no paragraphs. Reuse the meeting's own terms and numbers. Keep the whole briefing under 300 words.
-- Start your reply with the first marker. No planning, preamble, closing remarks, markdown headings, bold or tables.
+- Write for a busy reader skimming in Slack or email: short bullets of at most 20 words, no paragraphs. Reuse the meeting's own terms and numbers. Keep the whole briefing under {word_limit} words.
+{extra_rules}- Start your reply with the first marker. No planning, preamble, closing remarks, markdown headings, bold or tables.
 - Output exactly these four section markers, in this order, each on its own line.
 
 --- EXECUTIVE SUMMARY ---
@@ -56,6 +56,10 @@ class SummaryTemplate:
     actions: str = _OWNER_ACTIONS
     actions_heading: str = "Action items"
     reroutes: str = _GENERAL_REROUTES
+    word_limit: int = 300
+    output_tokens: int = SYNTH_OUTPUT_TOKENS  # longer briefings need room for models that think before answering
+    extra_rules: str = ""   # added to the briefing rules, one "- ..." line each
+    notes_extra: str = ""   # extra headings for the chunk notes of long meetings, so type-specific facts survive
 
 
 def _sections(bottom_line: str, *sections: tuple[str, str]) -> str:
@@ -139,6 +143,38 @@ SUMMARY_TEMPLATES = [
         reroutes='Usually write: None. Only if Me spoke, moments where Me\'s question or note was vague, each with a '
                  'sharper question that tests understanding.'),
 ]
+EARNINGS_TEMPLATE = SummaryTemplate(
+    keys=("earnings",),
+    summary=_sections("the quarter's verdict: beat, met or missed expectations, and the headline number",
+                      ("Headline numbers", "metric | result | change YoY or QoQ | vs guidance or consensus; cover revenue, "
+                                           "EPS (say GAAP or adjusted), margins, cash flow and any other KPI stated"),
+                      ("Beat / meet / miss", "metric | Beat, Met or Missed | by how much"),
+                      ("Guidance & targets", "next quarter or full-year outlook | raised, maintained or lowered | vs prior guidance"),
+                      ("Growth & momentum", "business line, product or region | what improved, with numbers | the driver"),
+                      ("Needs improvement", "business line | what lagged or declined, with numbers | cause and the fix stated"),
+                      ("Capital & investment", "buybacks, dividends, capex, hiring, M&A or cost programs"),
+                      ("Analyst & audience questions", "what was pressed on | the gist of the answer"),
+                      ("Risks & headwinds", "macro, FX, competitive, regulatory or execution risks named"),
+                      ("Insights", "2-3 so-what takeaways: what the results signal about strategy and priorities, and "
+                                   "what they mean for Me's area if AGENDA or LEADER NOTES say what it is")),
+    actions="One bullet per follow-up or item to watch next quarter: - Owner | Action or watch item | Due\n"
+            'Use "Unassigned" or "No date" when not stated. Write "- None" if there are none.',
+    actions_heading="Follow-ups & watch items",
+    reroutes="Usually write: None, when Me only listened. If Me presented or discussed results: moments where Me buried "
+             "the headline number, gave a number without its comparison (prior period, guidance or consensus) or "
+             "hedged on the outlook, each with a sharper, numbers-first line.",
+    word_limit=450,
+    output_tokens=2600,
+    extra_rules="- Copy every figure exactly as said, with its unit and period (Q3, FY, YoY). Call something a beat or miss "
+                "only if the expectation was stated or both figures were given; otherwise write \"vs expectations not stated\".\n"
+                "- Numbers come from speech recognition: mark a figure that looks inconsistent with \"(check)\".\n"
+                "- Insights may interpret, but only from the numbers and statements above.\n",
+    notes_extra="FINANCIALS: every figure stated, copied exactly: metric | value | period | change | vs guidance or consensus\n"
+                "SEGMENTS: business line | up or down, with numbers | driver or cause\n"
+                "GUIDANCE: outlook given | raised, maintained or lowered\n",
+)
+SUMMARY_TEMPLATES.insert(0, EARNINGS_TEMPLATE)
+
 GENERAL_TEMPLATE = SummaryTemplate(
     keys=(),
     summary=_sections("the most important outcome, decision or unresolved issue",
@@ -155,7 +191,8 @@ def summary_template(mode: str) -> SummaryTemplate:
 
 def summary_prompt(mode: str) -> str:
     t = summary_template(mode)
-    return _BRIEFING.format(summary=t.summary, actions=t.actions, reroutes=t.reroutes)
+    return _BRIEFING.format(summary=t.summary, actions=t.actions, reroutes=t.reroutes,
+                            word_limit=t.word_limit, extra_rules=t.extra_rules)
 
 
 EXECUTIVE_SYNTHESIS_PROMPT = summary_prompt("General Executive")
@@ -178,8 +215,13 @@ COMMITMENTS: (- owner | action | due, as stated; "Unassigned" / "No date" otherw
 KEY POINTS:
 RISKS/CONCERNS:
 OPEN QUESTIONS:
-LEADER QUOTES: up to 4 substantive lines (8+ words) copied word-for-word from "Me" (or from existing LEADER QUOTES) that are hedged, vague, defensive or rambling; when Me is hosting a guest, Me's weakest questions.
-Start directly with "DECISIONS:". Write "None" under empty headings. Short bullets; at most 180 words in total. Never invent anything. No planning or other text."""
+{extra}LEADER QUOTES: up to 4 substantive lines (8+ words) copied word-for-word from "Me" (or from existing LEADER QUOTES) that are hedged, vague, defensive or rambling; when Me is hosting a guest, Me's weakest questions.
+Start directly with "DECISIONS:". Write "None" under empty headings. Short bullets; at most {words} words in total. Never invent anything. No planning or other text."""
+
+
+def notes_prompt(mode: str) -> str:
+    t = summary_template(mode)
+    return NOTES_PROMPT.format(extra=t.notes_extra, words=260 if t.notes_extra else 180)
 
 # "--- NAME ---" anywhere (tolerating **bold** / ## wrappers), or NAME alone on its own line.
 _NAMES = "|".join(SECTIONS)
@@ -229,6 +271,10 @@ _HEADING_LABEL = re.compile(r"^\s*([A-Za-z][\w &/'-]{1,40}):\s*$")
 _LEAD = re.compile(r"^\s*(?:\*\*)?(bottom line|tl;?dr|summary|core message)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$", re.I)
 _ITEM_LABEL = re.compile(r"^\s*(?:\*\*)?(owner|who|action(?: item)?|task|due(?: date)?|deadline|by when|target(?: timeline)?|timeline|"
                          r"principle|what the guest shared|how i'?ll apply it)(?:\*\*)?\s*:\s*(?:\*\*)?", re.I)
+# "Headline numbers: a; b" on one line: small models sometimes inline a template section instead of bulleting it.
+_INLINE_SECTION = re.compile(r"^\s*(?:\*\*)?(%s)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(\S.*)$" % "|".join(sorted(
+    {re.escape(n) for t in SUMMARY_TEMPLATES for n in re.findall(r"^([A-Z][^:\n]{1,40}):$", t.summary, re.M)},
+    key=len, reverse=True)), re.I)
 _DROP_HEADINGS = {"executive summary", "summary", "executive briefing"}
 
 
@@ -266,6 +312,14 @@ def format_summary(text: str) -> str:
         if m and not _BULLET.match(line):
             label = "Bottom line" if m.group(1).lower() != "core message" else "Core message"
             lead.append(f"**{label}:** {m.group(2).strip().strip('*').strip()}")
+            continue
+        mi = _INLINE_SECTION.match(line)
+        if mi and not _BULLET.match(line):
+            sections.append((_heading_text(mi.group(1)), []))
+            for part in re.split(r";\s+", mi.group(2).strip()):
+                item = _format_item(part.strip().rstrip("."))
+                if item and not _EMPTY_ITEM.match(item.strip("* ")):
+                    sections[-1][1].append(f"- {item}")
             continue
         h = None
         for rx in (_HEADING_MARKER, _HEADING_MD, _HEADING_BOLD, _HEADING_LABEL):
@@ -331,17 +385,18 @@ class PostMeetingSynthesis:
     def _chars(self, tokens: int) -> int:
         return max(2000, int(tokens * self.lm_client.chars_per_token))
 
-    async def _condense(self, text: str, ctx: int, header_chars: int) -> tuple[str, int]:
+    async def _condense(self, text: str, ctx: int, header_chars: int, mode: str = "") -> tuple[str, int]:
         """Map step: replace the transcript with ordered notes until it fits the final prompt.
         Budgets are recomputed each round because chars/token is calibrated from real usage."""
-        budget = lambda: self._chars(ctx - PROMPT_OVERHEAD_TOKENS - SYNTH_OUTPUT_TOKENS) - header_chars  # noqa: E731
+        out = summary_template(mode).output_tokens
+        budget = lambda: self._chars(ctx - PROMPT_OVERHEAD_TOKENS - out) - header_chars  # noqa: E731
         rounds = 0
         while len(text) > budget() and rounds < MAX_REDUCE_ROUNDS:
             pieces = _chunks(text, self._chars(ctx - PROMPT_OVERHEAD_TOKENS - NOTES_OUTPUT_TOKENS))
             notes = []
             for i, piece in enumerate(pieces, 1):   # sequential: a local LLM serves one request well at a time
                 note = await self.lm_client.complete(
-                    NOTES_PROMPT, f"PART {i} OF {len(pieces)}:\n{piece}",
+                    notes_prompt(mode), f"PART {i} OF {len(pieces)}:\n{piece}",
                     max_tokens=NOTES_OUTPUT_TOKENS, temperature=0.2)
                 if note:
                     notes.append(f"## Part {i}\n{note}")
@@ -381,7 +436,7 @@ class PostMeetingSynthesis:
                               + meeting.notes.strip()[:MAX_LEADER_NOTES_CHARS])
 
             ctx = await self.lm_client.context_tokens()
-            body, rounds = await self._condense(transcript, ctx, sum(len(h) + 2 for h in header) + 100)
+            body, rounds = await self._condense(transcript, ctx, sum(len(h) + 2 for h in header) + 100, mode)
             label = ("TRANSCRIPT:" if rounds == 0 else
                      "NOTES (taken in order from consecutive parts of the full transcript):")
             logger.info("synthesis meeting %s: %d chars, ctx %d tok, %d condense round(s)",
@@ -389,7 +444,7 @@ class PostMeetingSynthesis:
 
             template = summary_template(mode)
             raw = await self.lm_client.complete(summary_prompt(mode), "\n\n".join(header + [f"{label}\n{body}"]),
-                                                max_tokens=SYNTH_OUTPUT_TOKENS, temperature=0.3)
+                                                max_tokens=template.output_tokens, temperature=0.3)
             if not raw:
                 return f"Failed to generate synthesis from LLM. {self.lm_client.last_error or ''}".strip()
 
@@ -424,7 +479,8 @@ class PostMeetingSynthesis:
                 transcript = "\n".join(f"{t.speaker}: {t.text}" for t in rows)
                 if transcript:
                     ctx = await self.lm_client.context_tokens()
-                    body, rounds = await self._condense(transcript, ctx, sum(len(x) + 2 for x in parts) + 100)
+                    body, rounds = await self._condense(transcript, ctx, sum(len(x) + 2 for x in parts) + 100,
+                                                         meeting.mode or "")
                     parts.append(("TRANSCRIPT:" if rounds == 0 else "MEETING NOTES (in order):") + "\n" + body)
             raw = await self.lm_client.complete(FOLLOWUP_PROMPT, "\n\n".join(parts), max_tokens=500, temperature=0.3)
             email = clean_email(raw)

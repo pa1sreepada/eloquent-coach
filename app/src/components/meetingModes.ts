@@ -7,6 +7,7 @@ export const MODES: [string, string][] = [
   ['Negotiation & Deal Mode', 'Negotiation'],
   ['Conflict Resolution', 'Conflict'],
   ['OKR & Delivery Review', 'Delivery Review'],
+  ['Quarterly Financial Earnings', 'Quarterly Earnings'],
   ['Fireside Chat & Guest Speaker', 'Fireside / Host'],
   ['YouTube & Learning Session', 'YouTube / Learning'],
 ];

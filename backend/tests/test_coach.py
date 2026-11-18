@@ -159,6 +159,18 @@ assert "Feedback given:" in summary_prompt("1:1 Coaching & Feedback")
 assert "Key concepts:" in summary_prompt("YouTube & Learning Session")
 assert summary_template("YouTube & Learning Session").actions_heading == "Apply & practise"
 assert "can't hear Me" in mode_focus("YouTube & Learning Session")
+earn = summary_prompt("Quarterly Financial Earnings")
+assert all(s in earn for s in ("EPS", "Beat / meet / miss:", "Guidance & targets:", "Growth & momentum:",
+                               "Needs improvement:", "Insights:", "under 450 words", "(check)")), earn
+assert "under 300 words" in summary_prompt("") and "(check)" not in summary_prompt("")
+assert summary_template("Quarterly Financial Earnings").actions_heading == "Follow-ups & watch items"
+from post_meeting_synthesis import notes_prompt
+assert "FINANCIALS:" in notes_prompt("Quarterly Financial Earnings") and "FINANCIALS:" not in notes_prompt("General Executive")
+assert "{" not in notes_prompt("") and "guidance" in mode_focus("Quarterly Financial Earnings")
+import leadership_analysis as la
+assert la.meeting_category("Quarterly Financial Earnings") == "earnings"
+assert format_summary("Bottom line: Beat.\nHeadline numbers: Revenue $4.2B (+12% YoY); EPS 1.38.\nRisks & headwinds: None") == \
+    "**Bottom line:** Beat.\n\n**Headline numbers**\n- Revenue $4.2B (+12% YoY)\n- EPS 1.38"
 assert summary_template("Something custom") is GENERAL_TEMPLATE and "Decisions:" in summary_prompt("")
 fire = summary_template("Fireside Chat & Guest Speaker")
 assert parse_briefing("--- EXECUTIVE SUMMARY ---\nBottom line: x\n--- ACTION ITEMS ---\n- Ask why first | Open each 1:1 with a why",
