@@ -151,7 +151,7 @@ async def live():
     other = speechlike(3, 3)
     s.meeting_id, s.meta, s._bg = mid, {"start": None}, set()
     s.voice = vp.VoiceChecker(vp.load_profile_vector())
-    s._voice_order = asyncio.Lock()
+    s._voice_order, s._voice_counts = asyncio.Lock(), realtime.Counter()
     s.tracker = la.DecisionTracker()
     s.coach = FakeCoach()
     remote = speechlike(3, 4)
@@ -163,12 +163,13 @@ async def live():
         await s._on_asr(AsrEvent("final", spk, f"u{i}", text, t0, t0 + 3000, 1.0))
     while s._bg:
         await asyncio.gather(*list(s._bg))
-    return s.coach.calls
+    return s.coach.calls, s._voice_counts
 
 
-calls = asyncio.run(live())
+calls, s_counts = asyncio.run(live())
 assert calls == [("Participant", "remote words"), ("Me", "we will ship on friday"),
                  ("Participant", "I disagree with that")], calls        # the echo never reaches the coach
+assert dict(s_counts) == {"me": 1, "room": 1, "echo": 1}, s_counts   # logged at meeting end
 db = SessionLocal()
 rows = {(t.text, t.speaker, t.voice) for t in db.query(Transcript).filter(Transcript.meeting_id == mid)}
 db.close()

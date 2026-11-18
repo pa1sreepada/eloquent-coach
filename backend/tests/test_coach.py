@@ -351,6 +351,8 @@ def test_llm_failure_reaches_hud():
         await asyncio.sleep(0.05)
         kinds = [(e["type"], e.get("state"), e.get("ok")) for e in events]
         assert ("llm_status", None, True) in kinds and ("ask", "done", None) in kinds, kinds
+        assert eng.stats["failed"] == 1 and eng.stats["cards"] >= 1, eng.stats   # end-of-meeting tally
+        assert "failed 1" in eng.stats_line(), eng.stats_line()
         await llm.aclose()
 
         # Unreachable server: a readable message, and model discovery isn't cached as a failure.

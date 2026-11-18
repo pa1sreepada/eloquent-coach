@@ -7,6 +7,7 @@ import logging
 import re
 import time
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -400,6 +401,17 @@ class CoachingEngine:
         self.notes = ""   # leader's live notes; updated from the notes endpoint
         self._llm_state: tuple[bool, str] | None = None
         self._last_call_failed = False
+        self.stats: Counter[str] = Counter()   # per-meeting tally, logged at the end (no meeting content)
+
+    def stats_line(self) -> str:
+        keys = ("triggers", "cards", "deferred", "expired", "skipped_busy", "preempted", "failed",
+                "ungrounded", "duplicate")
+        return ", ".join(f"{k} {self.stats[k]}" for k in keys) + (f"; by trigger {dict(self.stats_by_trigger)}"
+                                                                 if self.stats_by_trigger else "")
+
+    @property
+    def stats_by_trigger(self) -> dict[str, int]:
+        return {k[2:]: v for k, v in self.stats.items() if k.startswith("t:")}
 
     async def _set_llm_status(self, ok: bool, message: str = "") -> None:
         """Tell the HUD when coaching stops working (and when it recovers); silent while healthy."""
@@ -437,6 +449,8 @@ class CoachingEngine:
         await self.emit(self.telemetry.snapshot().to_json())
         trigger = self.policy.evaluate(u, self.telemetry)
         if trigger:
+            self.stats["triggers"] += 1
+            self.stats["t:" + trigger] += 1
             self._launch(trigger)
         else:
             self._retry_deferred()
@@ -448,6 +462,7 @@ class CoachingEngine:
             self._defer(self._inflight_trigger)
 
     def _defer(self, trigger: str) -> None:
+        self.stats["deferred"] += 1
         if self._deferred is None or TRIGGER_PRIORITY[trigger] <= TRIGGER_PRIORITY[self._deferred[0]]:
             self._deferred = (trigger, time.monotonic())
 
@@ -457,6 +472,7 @@ class CoachingEngine:
         trigger, at = self._deferred
         if time.monotonic() - at > LlmCoordinator.DEFER_TTL_S:
             self._deferred = None                  # the moment has passed
+            self.stats["expired"] += 1
         elif self.coord.allow(TRIGGER_PRIORITY[trigger]):
             self._deferred = None
             self._launch(trigger)
@@ -470,7 +486,9 @@ class CoachingEngine:
             self._deferred = None
         if self._inflight and not self._inflight.done():
             if prio >= self._inflight_priority:
+                self.stats["skipped_busy"] += 1
                 return
+            self.stats["preempted"] += 1
             self._inflight.cancel()
         self._inflight_priority, self._inflight_trigger = prio, trigger
         self._inflight = asyncio.create_task(self._generate(trigger, prio))
@@ -532,9 +550,11 @@ class CoachingEngine:
             return None
         if not is_grounded(f"{headline} {body}", sources):
             logger.info("dropped ungrounded card")
+            self.stats["ungrounded"] += 1
             logger.debug("ungrounded card headline: %s", headline)   # meeting content: debug only
             return None
         if self._is_duplicate(headline) and trigger != "ask":   # an explicit ask always gets its answer
+            self.stats["duplicate"] += 1
             return None
         return CoachCard(id=uuid.uuid4().hex[:10], kind=kind, headline=headline, body=body,
                          priority=max(prio, 1), ttl_s=45 if prio <= 1 else 75, trigger=trigger,
@@ -554,6 +574,7 @@ class CoachingEngine:
             if card is None:
                 return
             emitted += 1
+            self.stats["cards"] += 1
             logger.info("card %s/%s in %.0fms%s", trigger, card.kind, (time.perf_counter() - t) * 1000,
                         " (streamed headline)" if partial else "")
             logger.debug("card headline: %s", card.headline)
@@ -596,6 +617,7 @@ class CoachingEngine:
             msg = self._describe(err)
             logger.warning("coach LLM call failed (%s): %s", trigger, msg)
             self._last_call_failed = True
+            self.stats["failed"] += 1
             await self._set_llm_status(False, msg)
             return emitted
         finally:

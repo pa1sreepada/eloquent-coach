@@ -31,6 +31,27 @@ import voice
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _file_logging() -> None:
+    """Keep recent backend logs in ~/.eloquent-coach/logs (owner-only) for troubleshooting. Meeting
+    content is only ever logged at DEBUG, so this file holds timings, counts and errors."""
+    try:
+        from logging.handlers import RotatingFileHandler
+        log_dir = secure_store.STATE_DIR / "logs"
+        log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = log_dir / "backend.log"
+        os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+        handler = RotatingFileHandler(path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logging.getLogger().addHandler(handler)
+    except OSError as err:
+        logger.warning("file logging disabled: %s", err)
+
+
+if not os.environ.get("ELOQUENT_NO_FILE_LOG"):
+    _file_logging()
+
 app = FastAPI(title="Eloquent Coach API")
 
 # Every request needs the app's per-launch token and a loopback Host (api_auth). CORS is outermost so

@@ -13,7 +13,7 @@ import asyncio
 import datetime
 import logging
 import threading
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -292,6 +292,7 @@ class MeetingSession:
         self.tracker = DecisionTracker()   # live decisions / owners / parked topics for the HUD
         self.voice = voiceprint.VoiceChecker.load()   # tells my voice from the room's on the mic channel
         self._voice_order = asyncio.Lock()            # keeps mic finals in order while they are checked
+        self._voice_counts: Counter[str] = Counter()
         self._bg: set[asyncio.Task] = set()
         logger.info("meeting %s: ASR plan (%s) %s | %s", meeting_id, self.plan.source,
                     {s: f"{c.device}/{c.profile}" for s, c in self.plan.channels.items()},
@@ -338,6 +339,7 @@ class MeetingSession:
         payload = ev.to_json()
         if voice:
             payload["voice"], payload["voice_score"] = voice, sim
+            self._voice_counts[voice] += 1
         bus.publish(self.meeting_id, payload)
         if ev.type == "final":
             self._spawn(asyncio.to_thread(_persist_final, self.meeting_id,
@@ -361,6 +363,8 @@ class MeetingSession:
                             or logger.error("background task failed: %r", t.exception()))
 
     async def close(self) -> None:
+        logger.info("meeting %s coaching: %s; voice check: %s", self.meeting_id, self.coach.stats_line(),
+                    dict(self._voice_counts) or "off")
         await self.asr.close()
         if self.coach._inflight:
             self.coach._inflight.cancel()
