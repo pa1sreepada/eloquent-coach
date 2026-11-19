@@ -249,6 +249,32 @@ TECHNICAL_KT_TEMPLATE = SummaryTemplate(
                 "PEOPLE: who knows or owns what\n"
                 "GAPS: skipped, hand-waved or deferred topics\n",
 )
+TEAM_TEMPLATE = SummaryTemplate(
+    keys=("team meeting", "staff meeting", "team sync", "weekly team"),
+    summary=_sections("the one thing the team must know or do this week",
+                      ("Updates", "team or person | update | On track, At risk or Blocked"),
+                      ("PSA", "announcements and reminders everyone must know: process or policy changes, dates, "
+                              "deadlines, org news, outages, events"),
+                      ("Wins & shout-outs", "who | what they achieved or were thanked for"),
+                      ("Blockers & asks", "who | what is blocked or needed | from whom"),
+                      ("Decisions", "decision made in the meeting"),
+                      ("Key takeaways", "2-3 things the team should remember, in plain words")),
+    actions="One bullet per action item for the team: - Owner | Action | Due\n"
+            'Use "Unassigned" or "No date" when not stated. Write "- None" if there are none.',
+    actions_heading="Team action items",
+    reroutes="Moments where Me gave an update without the so-what, handed out work without an owner or date, let a "
+             "blocker pass without help, or missed recognising a win, each with a crisper line.",
+    word_limit=450,
+    output_tokens=2600,
+    extra_rules="- Keep each update with the person or team it belongs to; do not merge updates from different people.\n"
+                "- PSA is only for information everyone needs to know; never put tasks there.\n",
+    notes_extra="UPDATES: team or person | update | status\n"
+                "PSA: announcements, reminders, dates\n"
+                "WINS: who | what\n"
+                "BLOCKERS: who | what is needed | from whom\n",
+)
+SUMMARY_TEMPLATES.insert(0, TEAM_TEMPLATE)
+
 # Leadership first: a bare "knowledge transfer" or "handover" falls through to the technical template.
 SUMMARY_TEMPLATES[0:0] = [LEADERSHIP_KT_TEMPLATE, TECHNICAL_KT_TEMPLATE]
 
@@ -366,8 +392,13 @@ _INLINE_SECTION = re.compile(r"^\s*(?:\*\*)?(%s)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(\S.
 _DROP_HEADINGS = {"executive summary", "summary", "executive briefing"}
 
 
+_ACRONYM_HEADINGS = {"PSA", "FAQ"}
+
+
 def _heading_text(name: str) -> str:
     name = re.sub(r"[*_`]+", "", name).strip().rstrip(":").strip()
+    if name.upper() in _ACRONYM_HEADINGS:
+        return name.upper()
     return name[:1].upper() + name[1:].lower() if name.isupper() or name[:1].islower() else name
 
 

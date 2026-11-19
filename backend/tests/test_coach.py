@@ -183,6 +183,11 @@ assert "stakeholders" in mode_focus("Leadership Knowledge Transfer") and "roll b
 assert {la.meeting_category(m) for m in ("Technical Knowledge Transfer", "Leadership Knowledge Transfer")} == {"knowledge_transfer"}
 assert format_summary("Teach-back check: How do we roll back? | helm rollback\nCoverage map: Deploy | Covered") == \
     "**Teach-back check**\n- **How do we roll back?** — helm rollback\n\n**Coverage map**\n- **Deploy** — Covered"
+team = summary_prompt("Team Meeting")
+assert all(s in team for s in ("Updates:", "PSA:", "Wins & shout-outs:", "Key takeaways:", "never put tasks there")), team
+assert summary_template("Team Meeting").actions_heading == "Team action items" and "PSA:" in notes_prompt("Team Meeting")
+assert format_summary("PSA: Benefits close Nov 30") == "**PSA**\n- Benefits close Nov 30"
+assert "owner and a date" in mode_focus("Team Meeting") and la.meeting_category("Team Meeting") == "team"
 assert summary_template("Something custom") is GENERAL_TEMPLATE and "Decisions:" in summary_prompt("")
 fire = summary_template("Fireside Chat & Guest Speaker")
 assert parse_briefing("--- EXECUTIVE SUMMARY ---\nBottom line: x\n--- ACTION ITEMS ---\n- Ask why first | Open each 1:1 with a why",

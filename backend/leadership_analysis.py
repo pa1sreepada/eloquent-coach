@@ -33,6 +33,7 @@ CATEGORIES: list[tuple[str, str, tuple[str, ...]]] = [
     ("board", "Board, investors & execs", ("board", "investor", "steerco", "steering", "exec review", "qbr")),
     ("vendor", "Vendors, partners & customers", ("vendor", "supplier", "partner", "customer", "procurement", "negotiation", "deal")),
     ("presenting", "Presenting & hosting", ("fireside", "guest", "keynote", "presentation", "talk", "panel")),
+    ("team", "Team meetings", ("team meeting", "staff meeting", "team sync", "weekly team")),
     ("updates", "Updates & reviews", ("update", "status", "standup", "stand-up", "sync", "delivery", "okr", "review", "retro", "incident")),
     ("decisions", "Decisions & conflict", ("decision", "conflict", "escalation")),
 ]
