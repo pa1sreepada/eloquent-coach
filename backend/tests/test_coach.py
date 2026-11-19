@@ -171,6 +171,18 @@ import leadership_analysis as la
 assert la.meeting_category("Quarterly Financial Earnings") == "earnings"
 assert format_summary("Bottom line: Beat.\nHeadline numbers: Revenue $4.2B (+12% YoY); EPS 1.38.\nRisks & headwinds: None") == \
     "**Bottom line:** Beat.\n\n**Headline numbers**\n- Revenue $4.2B (+12% YoY)\n- EPS 1.38"
+tech, lead = summary_prompt("Technical Knowledge Transfer"), summary_prompt("Leadership Knowledge Transfer")
+assert all(s in tech for s in ("Tribal knowledge:", "Teach-back check:", "Coverage map:", "Never write passwords")), tech
+assert all(s in lead for s in ("Stakeholder map:", "Inherited commitments:", "Between the lines:", "under 550 words")), lead
+assert "receiving" in tech and "(read)" in lead and "System map:" not in lead
+assert summary_template("Technical Knowledge Transfer").actions_heading == "Handover checklist"
+assert summary_template("Leadership Knowledge Transfer").actions_heading == "Transition plan"
+assert summary_template("Payments handover").actions_heading == "Handover checklist"   # generic handover -> technical
+assert "STAKEHOLDERS:" in notes_prompt("Leadership Knowledge Transfer") and "GOTCHAS:" in notes_prompt("Technical KT")
+assert "stakeholders" in mode_focus("Leadership Knowledge Transfer") and "roll back" in mode_focus("Technical Knowledge Transfer")
+assert {la.meeting_category(m) for m in ("Technical Knowledge Transfer", "Leadership Knowledge Transfer")} == {"knowledge_transfer"}
+assert format_summary("Teach-back check: How do we roll back? | helm rollback\nCoverage map: Deploy | Covered") == \
+    "**Teach-back check**\n- **How do we roll back?** — helm rollback\n\n**Coverage map**\n- **Deploy** — Covered"
 assert summary_template("Something custom") is GENERAL_TEMPLATE and "Decisions:" in summary_prompt("")
 fire = summary_template("Fireside Chat & Guest Speaker")
 assert parse_briefing("--- EXECUTIVE SUMMARY ---\nBottom line: x\n--- ACTION ITEMS ---\n- Ask why first | Open each 1:1 with a why",
@@ -188,6 +200,14 @@ def test_reroute_filter():
            '3. ORIGIN: "I can not really do anything about the slow API calls." | ALTERNATIVE: "API latency is outside our control; we track it." | RATIONALE: r\n')
     _, rr = parse_briefing(raw)
     assert rr.count("ORIGIN") == 1 and "slow API" in rr, rr
+    # Only the leader's own words can be rerouted (small models sometimes quote another speaker).
+    raw2 = raw + '4. ORIGIN: "Decisions are really made in the Thursday staff sync, not the steerco." | ALTERNATIVE: "a b" | RATIONALE: r\n'
+    _, rr = parse_briefing(raw2, me_text="Um, I can not really do anything about the slow API calls, sorry.")
+    assert rr.count("ORIGIN") == 1 and "slow API" in rr, rr
+    s, _ = parse_briefing("--- EXECUTIVE SUMMARY ---\nBottom line: ok\nSystem map:\n- Ingest | Reads Kafka (- None)\n"
+                          "--- ACTION ITEMS ---\nParticipant | Set up Argo access | Friday\n", "Handover checklist")
+    assert s == ("**Bottom line:** ok\n\n**System map**\n- **Ingest** — Reads Kafka\n\n"
+                 "**Handover checklist**\n- **Participant** — Set up Argo access (Friday)"), s
 
 
 test_reroute_filter()

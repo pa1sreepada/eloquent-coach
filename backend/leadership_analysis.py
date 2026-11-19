@@ -25,6 +25,7 @@ ME_SPEAKERS = {"Me", "User"}   # "User" = transcripts from older versions
 # ---------------------------------------------------------------- meeting categories
 # (id, label, keywords). Matched against the meeting type first, then the title.
 CATEGORIES: list[tuple[str, str, tuple[str, ...]]] = [
+    ("knowledge_transfer", "Knowledge transfer & handovers", ("knowledge transfer", "handover", "hand-over", "handoff", "kt session")),
     ("learning", "Learning (not you speaking)", ("youtube", "learning", "webinar", "training", "course")),
     ("one_on_one", "1:1s", ("1:1", "1-1", "one-on-one", "one on one", "1on1", "skip level", "skip-level", "coaching & feedback")),
     ("all_hands", "All-hands & town halls", ("all hands", "all-hands", "allhands", "town hall", "townhall", "kickoff", "kick-off")),

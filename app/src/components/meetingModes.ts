@@ -8,6 +8,8 @@ export const MODES: [string, string][] = [
   ['Conflict Resolution', 'Conflict'],
   ['OKR & Delivery Review', 'Delivery Review'],
   ['Quarterly Financial Earnings', 'Quarterly Earnings'],
+  ['Technical Knowledge Transfer', 'Technical KT'],
+  ['Leadership Knowledge Transfer', 'Leadership KT'],
   ['Fireside Chat & Guest Speaker', 'Fireside / Host'],
   ['YouTube & Learning Session', 'YouTube / Learning'],
 ];

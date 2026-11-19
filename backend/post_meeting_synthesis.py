@@ -175,6 +175,83 @@ EARNINGS_TEMPLATE = SummaryTemplate(
 )
 SUMMARY_TEMPLATES.insert(0, EARNINGS_TEMPLATE)
 
+_KT_DIRECTION = ("- Work out from the transcript whether Me is receiving the knowledge (mostly asking) or giving it "
+                 "(mostly explaining), and write every section from the receiver's point of view.\n")
+_KT_GAPS = ("- Gaps matter as much as content: when something was skipped, hand-waved (\"it just works\", \"I'll send it "
+            "later\") or answered vaguely, say so plainly. Mark your own interpretation with \"(read)\".\n")
+
+LEADERSHIP_KT_TEMPLATE = SummaryTemplate(
+    keys=("leadership knowledge", "leadership kt", "leadership handover", "leadership transition"),
+    summary=_sections("the mandate being handed over and the one thing that will make or break the first 90 days",
+                      ("Mandate & success", "what success looks like, by when, and who judges it"),
+                      ("Stakeholder map", "name or role | what they care about | stance: ally, skeptic or neutral | "
+                                          "how to work with them"),
+                      ("Team & talent", "strengths, flight risks, performance concerns, open roles, successors; factual, as stated"),
+                      ("Inherited commitments", "promises already made to people, customers or execs that the receiver now owns"),
+                      ("Live fires & pending decisions", "issue | why it is urgent | decision needed by"),
+                      ("Unwritten rules", "how decisions really get made, sensitivities, norms and political history"),
+                      ("Lessons from the past", "what was tried before, what failed and why: don't repeat"),
+                      ("Coverage map", "one line each for strategy, budget, headcount, stakeholders, team performance, "
+                                       "culture, commitments, risks: Covered, Partial or Missing"),
+                      ("Between the lines", "topics avoided, repeated worries, hedging around a person or topic, what "
+                                            "the energy suggested (read)"),
+                      ("Early wins", "quick, visible wins that were suggested or that the context implies (read)"),
+                      ("Questions to ask next", "the 3 most important questions still to ask, and whom to ask")),
+    actions="One bullet per transition step (intros to make, 1:1s to book, documents or access to get, decisions to "
+            "take): - Owner | Step | Due\n"
+            'Use "Unassigned" or "No date" when not stated. Write "- None" if there are none.',
+    actions_heading="Transition plan",
+    reroutes="If Me was receiving: moments where Me accepted a vague answer about a person, a commitment or a risk, each "
+             "with a sharper follow-up question. If Me was handing over: moments where Me was vague about ownership, "
+             "softened a real problem or skipped the why, each with a candid, specific line.",
+    word_limit=550,
+    output_tokens=3000,
+    extra_rules=_KT_DIRECTION + _KT_GAPS +
+                "- Talk about people only as they were described; never add judgements about anyone.\n",
+    notes_extra="STAKEHOLDERS: name or role | cares about | stance\n"
+                "INHERITED: commitments and promises the receiver now owns\n"
+                "TEAM: talent notes as stated\n"
+                "CONTEXT: history, unwritten rules, sensitivities, past attempts\n"
+                "GAPS: topics avoided, deferred or answered vaguely\n",
+)
+
+TECHNICAL_KT_TEMPLATE = SummaryTemplate(
+    keys=("technical knowledge", "technical kt", "technical handover", "knowledge transfer", "handover"),
+    summary=_sections("what the system does and the one thing the receiver must understand to own it safely",
+                      ("System map", "component | what it does | depends on or talks to"),
+                      ("Why it is built this way", "design decisions and trade-offs, with the reason given"),
+                      ("Tribal knowledge", "undocumented tricks, workarounds, manual steps and \"never touch X\" rules"),
+                      ("Landmines & failure modes", "what breaks | how it shows up | how it was fixed before"),
+                      ("Run & operate", "deploy, rollback, monitoring and alerts, on-call, access needed "
+                                        "(names of systems only, never secrets)"),
+                      ("In-flight work & tech debt", "half-finished changes, pending migrations, debt, deadlines"),
+                      ("Who knows what", "person | what to ask them; mark single points of knowledge as bus-factor risk"),
+                      ("Coverage map", "one line each for architecture, data, deploy, monitoring, incidents, security "
+                                       "and access, dependencies, roadmap: Covered, Partial or Missing"),
+                      ("Teach-back check", "3 questions the receiver should now be able to answer | the answer from "
+                                           "the transcript, or \"not covered: ask\""),
+                      ("Questions to ask next", "the most important open technical questions, and whom to ask")),
+    actions="One bullet per handover task (docs, diagrams, access, recordings, shadowing, a pairing session): "
+            "- Owner | Task | Due\n"
+            'Use "Unassigned" or "No date" when not stated. Write "- None" if there are none.',
+    actions_heading="Handover checklist",
+    reroutes="If Me was receiving: moments where Me accepted hand-waving or moved on without an example, each with a "
+             "sharper clarifying question. If Me was explaining: moments of unexplained jargon, how without why, or "
+             "no example, each with a clearer line.",
+    word_limit=550,
+    output_tokens=3000,
+    extra_rules=_KT_DIRECTION + _KT_GAPS +
+                "- Keep system, service, command and file names exactly as said. Never write passwords, keys or tokens "
+                "even if they were spoken.\n",
+    notes_extra="SYSTEMS: component | what it does | dependencies\n"
+                "GOTCHAS: tribal knowledge, landmines, workarounds, past incidents\n"
+                "OPERATE: deploy, monitoring, on-call, access\n"
+                "PEOPLE: who knows or owns what\n"
+                "GAPS: skipped, hand-waved or deferred topics\n",
+)
+# Leadership first: a bare "knowledge transfer" or "handover" falls through to the technical template.
+SUMMARY_TEMPLATES[0:0] = [LEADERSHIP_KT_TEMPLATE, TECHNICAL_KT_TEMPLATE]
+
 GENERAL_TEMPLATE = SummaryTemplate(
     keys=(),
     summary=_sections("the most important outcome, decision or unresolved issue",
@@ -245,13 +322,24 @@ def _chunks(text: str, max_chars: int) -> list[str]:
 _PLACEHOLDER = re.compile(r"\b(?:X|Y|Z)\b(?:\s*(?:,|/|and|or)\s*\b(?:X|Y|Z)\b)+|\[[^\]]*\]|<[^>]*>")
 
 
-def _good_reroute(line: str) -> bool:
-    """Keep reroutes with a substantive ORIGIN quote and a concrete (placeholder-free) alternative."""
+def _bigrams(text: str) -> set[tuple[str, str]]:
+    w = re.findall(r"[a-z0-9']+", text.lower())
+    return set(zip(w, w[1:]))
+
+
+def _good_reroute(line: str, me_bigrams: set[tuple[str, str]] | None = None) -> bool:
+    """Keep reroutes with a substantive ORIGIN quote and a concrete (placeholder-free) alternative.
+    With the leader's own lines given, the ORIGIN must (nearly) be one of them, not someone else's words."""
     parts = line.split("|")
     if len(parts) < 3:
         return False
     origin = parts[0].split(":", 1)[-1].strip(' "\'')
-    return len(origin.split()) >= 8 and not _PLACEHOLDER.search(parts[1])
+    if len(origin.split()) < 8 or _PLACEHOLDER.search(parts[1]):
+        return False
+    if me_bigrams is not None:
+        ob = _bigrams(origin)
+        return bool(ob) and len(ob & me_bigrams) >= 0.8 * len(ob)
+    return True
 
 
 # ---------------------------------------------------------------- summary formatting
@@ -284,7 +372,7 @@ def _heading_text(name: str) -> str:
 
 
 def _format_item(text: str) -> str:
-    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*\((?:-\s*)?none\)", "", re.sub(r"\s+", " ", text), flags=re.I).strip()
     if "|" not in text:
         return text
     parts = [_ITEM_LABEL.sub("", p).strip().strip("*").strip() for p in text.split("|")]
@@ -336,6 +424,10 @@ def format_summary(text: str) -> str:
             item = _format_item(b.group(1))
             if item and not _EMPTY_ITEM.match(item.strip("* ")):
                 sections[-1][1].append(f"- {item}")
+        elif " | " in line:   # an unbulleted "Owner | Action | Due" row
+            item = _format_item(line)
+            if item and not _EMPTY_ITEM.match(item.strip("* ")):
+                sections[-1][1].append(f"- {item}")
         elif not _EMPTY_ITEM.match(line.strip()):
             sections[-1][1].append(re.sub(r"\s+", " ", line).strip())
     sections = [(h, body) for h, body in sections if body]
@@ -355,7 +447,7 @@ def format_summary(text: str) -> str:
     return "\n\n".join(b for b in blocks if b).strip() or text.strip()
 
 
-def parse_briefing(raw: str, actions_heading: str = "Action items") -> tuple[str, str]:
+def parse_briefing(raw: str, actions_heading: str = "Action items", me_text: str | None = None) -> tuple[str, str]:
     """Split LLM output into (summary shown in Reports, reroute lines). Tolerates markdown around markers."""
     marks = list(_MARKER.finditer(raw))
     if not marks:
@@ -373,8 +465,9 @@ def parse_briefing(raw: str, actions_heading: str = "Action items") -> tuple[str
         if body:
             heading = actions_heading if name == "ACTION ITEMS" else name.capitalize()
             blocks.append(body if name == "EXECUTIVE SUMMARY" else f"{heading}:\n{body}")
+    me_bigrams = _bigrams(me_text) if me_text is not None else None
     reroutes = "\n".join(ln.strip() for ln in sections.get("STRATEGIC REROUTES", "").splitlines()
-                         if _good_reroute(ln))
+                         if _good_reroute(ln, me_bigrams))
     return format_summary("\n\n".join(blocks) or raw.strip()), reroutes
 
 
@@ -448,7 +541,9 @@ class PostMeetingSynthesis:
             if not raw:
                 return f"Failed to generate synthesis from LLM. {self.lm_client.last_error or ''}".strip()
 
-            meeting.summary, meeting.strategic_alternatives = parse_briefing(raw, template.actions_heading)
+            me_text = "\n".join(t.text for t in rows if t.speaker == "Me" and t.voice not in ("echo", "room"))
+            meeting.summary, meeting.strategic_alternatives = parse_briefing(raw, template.actions_heading,
+                                                                             me_text if rows else None)
             db.commit()
             return raw
         except Exception as e:  # noqa: BLE001
