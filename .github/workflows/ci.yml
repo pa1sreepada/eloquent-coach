@@ -43,6 +43,7 @@ jobs:
           python tests/test_api_auth.py
           python tests/test_leadership.py
           python tests/test_voice.py
+          python tests/test_rephrase.py
       - name: Vulnerability audit
         working-directory: backend
         run: pip-audit -r requirements.txt --progress-spinner=off

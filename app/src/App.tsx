@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import appIcon from './assets/icon.svg';
-import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen, ScrollText, Compass, TrendingUp, Users } from 'lucide-react';
+import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen, ScrollText, Compass, TrendingUp, Users, WandSparkles } from 'lucide-react';
 import LiveMeetingView from './components/LiveMeetingView';
 import DashboardView from './components/DashboardView';
 import SettingsView from './components/SettingsView';
@@ -10,8 +10,9 @@ import TeleprompterView from './components/TeleprompterView';
 import PrepareView, { type StartArgs } from './components/PrepareView';
 import GrowthView from './components/GrowthView';
 import LeadershipView from './components/LeadershipView';
+import RephraseView from './components/RephraseView';
 
-type Tab = 'dashboard' | 'live' | 'prepare' | 'history' | 'growth' | 'leadership' | 'reports' | 'teleprompter' | 'settings';
+type Tab = 'dashboard' | 'live' | 'prepare' | 'rephrase' | 'history' | 'growth' | 'leadership' | 'reports' | 'teleprompter' | 'settings';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -76,6 +77,7 @@ function App() {
           />
         )}
         {activeTab === 'prepare' && <PrepareView onStartMeeting={startMeeting} />}
+        {activeTab === 'rephrase' && <RephraseView />}
         {activeTab === 'growth' && <GrowthView />}
         {activeTab === 'leadership' && <LeadershipView />}
         {activeTab === 'history' && <ReportsView initialMeetingId={selectedHistoryId} />}
@@ -110,6 +112,8 @@ function App() {
           )}
           <NavItem icon={<Compass size={18} />} label="Prepare" collapsed={collapsed}
             active={activeTab === 'prepare'} onClick={() => setActiveTab('prepare')} />
+          <NavItem icon={<WandSparkles size={18} />} label="Rephrase" collapsed={collapsed}
+            active={activeTab === 'rephrase'} onClick={() => setActiveTab('rephrase')} />
           <NavItem icon={<History size={18} />} label="Meeting History" collapsed={collapsed}
             active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
           <NavItem icon={<TrendingUp size={18} />} label="Growth" collapsed={collapsed}

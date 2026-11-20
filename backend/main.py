@@ -27,6 +27,7 @@ import prompter
 import leadership
 import leadership_analysis
 import voice
+import rephrase
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ app.include_router(realtime.router)
 app.include_router(prompter.router)
 app.include_router(leadership.router)
 app.include_router(voice.router)
+app.include_router(rephrase.router)
 
 lm_client: LMStudioClient | None = None
 metrics_engine: MetricsEngine | None = None
