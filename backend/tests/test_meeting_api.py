@@ -67,6 +67,11 @@ assert client.patch(f"/meetings/{m_id}", json={"mode": " "}).status_code == 400
 assert client.patch(f"/meetings/{m_id}", json={}).status_code == 400
 r = client.patch(f"/meetings/{m_id}", json={"title": "Weekly sync"})
 assert r.json()["title"] == "Weekly sync" and r.json()["mode"] == "OKR & Delivery Review", r.json()
+# Instructions to paste with the transcript into another LLM: same sections as this meeting type's summary.
+prompt = client.get(f"/meetings/{m_id}/llm-prompt").json()["prompt"]
+assert "Status vs target:" in prompt and "Weekly sync" in prompt and "OKR & Delivery Review" in prompt, prompt
+assert "Phrasing pivots" in prompt and "---" not in prompt and '(or "- None")' not in prompt, prompt
+assert client.get("/meetings/999999/llm-prompt").status_code == 404
 
 # External frontier model: keys go to the (stubbed) credential store and are never returned.
 import external_llm

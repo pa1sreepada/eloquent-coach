@@ -322,6 +322,41 @@ OPEN QUESTIONS:
 Start directly with "DECISIONS:". Write "None" under empty headings. Short bullets; at most {words} words in total. Never invent anything. No planning or other text."""
 
 
+_EXTERNAL = """You are an executive coach and chief of staff. Summarise the meeting transcript below for a senior leader.
+In the transcript "Me" is the leader and "Participant" is anyone else (individual speakers are not labelled; use a person's name only if it was spoken). It comes from speech recognition, so expect a few misheard words.
+
+Rules:
+- Use only what is in the transcript and notes. Never invent decisions, owners, dates, numbers or quotes.
+- Short bullets of at most 20 words, no paragraphs. Use each section name below as a Markdown heading, and skip sections with nothing to report. Keep it under {word_limit} words.
+{extra_rules}
+Sections:
+{summary}
+
+{actions_heading}:
+{actions}
+
+Open questions:
+- Up to 5 important questions raised but not resolved.
+
+Phrasing pivots:
+- {reroutes} Up to 3, each as: what Me said (quoted exactly) → a stronger line Me could have said → why it works. Write "None" if nothing qualifies."""
+
+
+def external_prompt(mode: str, *, title: str = "", when: str = "", agenda: str = "", notes: str = "") -> str:
+    """Instructions to paste into another LLM with a transcript; same sections as the built-in summary."""
+    t = summary_template(mode)
+    body = _EXTERNAL.format(summary=t.summary.replace(' (or "- None")', ""), actions=t.actions,
+                            actions_heading=t.actions_heading, reroutes=t.reroutes,
+                            word_limit=t.word_limit, extra_rules=t.extra_rules)
+    ctx = [f"MEETING: {' · '.join(x for x in (title, when, mode) if x)}"]
+    if agenda.strip():
+        ctx.append(f"GOAL: {agenda.strip()}")
+    if notes.strip():
+        ctx.append("MY NOTES (typed during the meeting; make sure what they mention is covered):\n"
+                   + notes.strip()[:MAX_LEADER_NOTES_CHARS])
+    return body + "\n\n" + "\n".join(ctx)
+
+
 def notes_prompt(mode: str) -> str:
     t = summary_template(mode)
     return NOTES_PROMPT.format(extra=t.notes_extra, words=260 if t.notes_extra else 180)

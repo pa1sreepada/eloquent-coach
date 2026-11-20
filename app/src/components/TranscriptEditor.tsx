@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Pencil, Trash2, CheckSquare, X } from 'lucide-react';
+import { Pencil, Trash2, CheckSquare, X, Copy, Check, Sparkles } from 'lucide-react';
 import { speakerColor, speakerLabel } from './voiceRecorder';
+import { llmHandoff, transcriptText } from './transcriptCopy';
 
 const API = 'http://127.0.0.1:8000';
 
@@ -30,6 +31,24 @@ export default function TranscriptEditor({ meetingId, lines, hasSummary, onChang
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
+  const [copied, setCopied] = useState<'plain' | 'llm' | 'selected' | null>(null);
+
+  const copy = async (kind: 'plain' | 'llm' | 'selected') => {
+    setError(null);
+    try {
+      const picked = kind === 'selected' ? lines.filter(l => selected.has(l.id)) : lines;
+      let text = transcriptText(picked);
+      if (kind === 'llm') {
+        const { prompt } = await request(`${API}/meetings/${meetingId}/llm-prompt`, { method: 'GET' });
+        text = llmHandoff(prompt, picked);
+      }
+      await navigator.clipboard.writeText(text);
+      setCopied(kind);
+      setTimeout(() => setCopied(c => (c === kind ? null : c)), kind === 'llm' ? 6000 : 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not copy.');
+    }
+  };
 
   const remove = async (ids: number[]) => {
     setBusy(true);
@@ -75,6 +94,10 @@ export default function TranscriptEditor({ meetingId, lines, hasSummary, onChang
             <span>{selected.size ? `${selected.size} selected` : 'Select the lines to delete'}</span>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-outline" onClick={() => setSelected(new Set(lines.map(l => l.id)))} disabled={busy}>Select all</button>
+              <button className="btn btn-outline" onClick={() => copy('selected')} disabled={!selected.size || busy}
+                title="Copy the selected lines as plain text">
+                {copied === 'selected' ? <Check size={14} /> : <Copy size={14} />} {copied === 'selected' ? 'Copied' : 'Copy'}
+              </button>
               {confirmBulk ? (
                 <button className="btn btn-danger" onClick={() => remove([...selected])} disabled={busy}>
                   {busy ? 'Deleting…' : `Delete ${selected.size} permanently`}
@@ -90,9 +113,18 @@ export default function TranscriptEditor({ meetingId, lines, hasSummary, onChang
         ) : (
           <>
             <span>Hover a line to correct or delete it.</span>
-            <button className="btn btn-outline" onClick={() => { setSelecting(true); setEditingId(null); setConfirmId(null); }}>
-              <CheckSquare size={14} /> Select lines
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => copy('plain')} title="Copy the whole transcript as plain text">
+                {copied === 'plain' ? <Check size={14} /> : <Copy size={14} />} {copied === 'plain' ? 'Copied' : 'Copy transcript'}
+              </button>
+              <button className="btn btn-outline" onClick={() => copy('llm')}
+                title="Copy the transcript with summary instructions for this meeting type, ready to paste into ChatGPT, Claude, Gemini or Copilot">
+                {copied === 'llm' ? <Check size={14} /> : <Sparkles size={14} />} {copied === 'llm' ? 'Copied' : 'Copy for another LLM'}
+              </button>
+              <button className="btn btn-outline" onClick={() => { setSelecting(true); setEditingId(null); setConfirmId(null); }}>
+                <CheckSquare size={14} /> Select lines
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -100,6 +132,12 @@ export default function TranscriptEditor({ meetingId, lines, hasSummary, onChang
       {changed && hasSummary && (
         <div style={{ fontSize: '0.82rem', padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', color: 'var(--text-secondary)' }}>
           Transcript changed. Regenerate the summary and follow-up email to include your edits.
+        </div>
+      )}
+      {copied === 'llm' && (
+        <div style={{ fontSize: '0.82rem', padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', color: 'var(--text-secondary)' }}>
+          Copied the transcript with summary instructions for this meeting type. Paste it into any LLM chat.
+          A cloud LLM will receive this meeting's content, so follow your company's AI policy.
         </div>
       )}
       {error && <div style={{ fontSize: '0.82rem', color: 'var(--color-risk)' }}>{error}</div>}

@@ -20,7 +20,7 @@ from coach_engine import OpenAICompatClient
 import llm_provider
 import external_llm
 from metrics_engine import MetricsEngine
-from post_meeting_synthesis import PostMeetingSynthesis, format_summary
+from post_meeting_synthesis import PostMeetingSynthesis, external_prompt, format_summary
 from report_generator import ReportGenerator
 import realtime
 import prompter
@@ -438,6 +438,17 @@ def _insights(meeting: Meeting) -> list[dict]:
     rows = sorted(meeting.insights, key=lambda i: i.timestamp or datetime.datetime.min)
     return [{"id": i.id, "kind": i.insight_type, "headline": i.text, "body": i.strategic_rationale,
              "timestamp": i.timestamp.isoformat() if i.timestamp else None} for i in rows]
+
+@app.get("/meetings/{meeting_id}/llm-prompt")
+def meeting_llm_prompt(meeting_id: int, db: Session = Depends(get_db)):
+    """Summary instructions for this meeting's type, to paste with the transcript into another LLM."""
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found.")
+    when = meeting.start_time.strftime("%a %d %b %Y, %H:%M") if meeting.start_time else ""
+    return {"prompt": external_prompt(meeting.mode or "", title=meeting.title or "", when=when,
+                                      agenda=meeting.agenda or "", notes=meeting.notes or "")}
+
 
 @app.get("/meetings/{meeting_id}/export")
 def export_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):

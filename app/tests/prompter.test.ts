@@ -129,3 +129,18 @@ assert.equal(sanitizePrompter({ mirror: 'yes' as unknown as boolean }).mirror, D
 assert.deepEqual(sanitizePrompter(null), DEFAULT_PROMPTER)
 
 console.log('prompter ok')
+
+// ---- transcript copy (for pasting into another LLM)
+{
+  const { transcriptText, llmHandoff } = await import('../src/components/transcriptCopy.ts')
+  const lines = [
+    { speaker: 'Participant', text: 'We  shipped the fix.', timestamp: '2026-11-19T10:05:00' },
+    { speaker: 'Me', text: 'Great work.', timestamp: '2026-11-19T10:06:00', voice: 'me' },
+    { speaker: 'Me', text: 'We shipped the fix.', voice: 'echo' },
+    { speaker: 'Me', text: 'Can I add one thing?', voice: 'room' },
+  ]
+  assert.equal(transcriptText(lines),
+    '[10:05] Participant: We shipped the fix.\n[10:06] Me: Great work.\nParticipant (in the room): Can I add one thing?')
+  assert.equal(transcriptText(lines.slice(0, 2), { times: false }), 'Participant: We shipped the fix.\nMe: Great work.')
+  assert.equal(llmHandoff('Summarise.\n', lines.slice(1, 2)), 'Summarise.\n\nTRANSCRIPT:\n[10:06] Me: Great work.\n')
+}
