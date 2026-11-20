@@ -3,7 +3,7 @@
 # so a fresh install always gets current security fixes without breaking changes.
 # Major upgrades are proposed by Dependabot / scripts/update_deps.py for review.
 fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
+uvicorn[standard]>=0.54.0,<1
 sqlalchemy>=2.0,<3
 pydantic>=2.7,<3
 numpy>=2.0,<3
