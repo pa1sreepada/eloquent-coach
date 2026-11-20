@@ -103,27 +103,16 @@ function App() {
           </div>
         </div>
 
-        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <NavItem icon={<BarChart2 size={18} />} label="Dashboard" collapsed={collapsed}
-            active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          {isRecording && (
-            <NavItem icon={<Mic size={18} color="var(--color-risk)" />} label="Live Coach" collapsed={collapsed}
-              active={activeTab === 'live'} onClick={() => setActiveTab('live')} />
-          )}
-          <NavItem icon={<Compass size={18} />} label="Prepare" collapsed={collapsed}
-            active={activeTab === 'prepare'} onClick={() => setActiveTab('prepare')} />
-          <NavItem icon={<WandSparkles size={18} />} label="Rephrase" collapsed={collapsed}
-            active={activeTab === 'rephrase'} onClick={() => setActiveTab('rephrase')} />
-          <NavItem icon={<History size={18} />} label="Meeting History" collapsed={collapsed}
-            active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
-          <NavItem icon={<TrendingUp size={18} />} label="Growth" collapsed={collapsed}
-            active={activeTab === 'growth'} onClick={() => setActiveTab('growth')} />
-          <NavItem icon={<Users size={18} />} label="Leadership" collapsed={collapsed}
-            active={activeTab === 'leadership'} onClick={() => setActiveTab('leadership')} />
-          <NavItem icon={<FileText size={18} />} label="Reports" collapsed={collapsed}
-            active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
-          <NavItem icon={<ScrollText size={18} />} label="Teleprompter" collapsed={collapsed}
-            active={activeTab === 'teleprompter'} onClick={() => setActiveTab('teleprompter')} />
+        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px', overflowY: 'auto', overflowX: 'hidden' }}>
+          {navGroups(isRecording).map(g => (
+            <div key={g.title} className="nav-group" role="group" aria-label={g.title}>
+              <div className="nav-section"><span className="label">{g.title}</span></div>
+              {g.items.map(i => (
+                <NavItem key={i.tab} icon={i.icon} label={i.label} collapsed={collapsed}
+                  active={activeTab === i.tab} onClick={() => setActiveTab(i.tab)} />
+              ))}
+            </div>
+          ))}
         </nav>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -155,6 +144,31 @@ function App() {
       </main>
     </div>
   );
+}
+
+interface NavEntry { tab: Tab; label: string; icon: React.ReactNode }
+
+/** Sidebar sections, ordered by the meeting workflow: before, during and after, then writing and long-term growth. */
+function navGroups(isRecording: boolean): { title: string; items: NavEntry[] }[] {
+  return [
+    { title: 'Workspace', items: [
+      { tab: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={18} /> },
+      ...(isRecording ? [{ tab: 'live' as Tab, label: 'Live Coach', icon: <Mic size={18} color="var(--color-risk)" /> }] : []),
+    ] },
+    { title: 'Meetings', items: [
+      { tab: 'prepare', label: 'Prepare', icon: <Compass size={18} /> },
+      { tab: 'history', label: 'Meeting History', icon: <History size={18} /> },
+      { tab: 'reports', label: 'Reports', icon: <FileText size={18} /> },
+    ] },
+    { title: 'Communicate', items: [
+      { tab: 'rephrase', label: 'Rephrase', icon: <WandSparkles size={18} /> },
+      { tab: 'teleprompter', label: 'Teleprompter', icon: <ScrollText size={18} /> },
+    ] },
+    { title: 'Leadership & Growth', items: [
+      { tab: 'leadership', label: 'Leadership', icon: <Users size={18} /> },
+      { tab: 'growth', label: 'Growth', icon: <TrendingUp size={18} /> },
+    ] },
+  ];
 }
 
 function NavItem({ icon, label, active, onClick, collapsed, hint }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, collapsed: boolean, hint?: string }) {

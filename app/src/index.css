@@ -155,7 +155,20 @@ p {
 .sidebar .label { white-space: nowrap; transition: opacity 0.15s ease; }
 .sidebar.collapsed .label { opacity: 0; pointer-events: none; }
 
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group { margin-top: 0.9rem; }
+.nav-section {
+  position: relative; height: 22px; padding: 0 12px; display: flex; align-items: center;
+  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary);
+}
+.nav-group:first-child .nav-section { display: none; }
+/* Collapsed: section titles become thin dividers. */
+.sidebar.collapsed .nav-section::after {
+  content: ''; position: absolute; left: 14px; right: 14px; top: 50%; border-top: 1px solid var(--border-color);
+}
+
 .nav-item {
+  flex-shrink: 0;
   display: flex; align-items: center; gap: 12px;
   height: 38px; padding: 0 12px; border-radius: 8px;
   background: transparent; color: var(--text-secondary);
