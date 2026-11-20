@@ -61,7 +61,7 @@ function hardenContents(contents: WebContents) {
   contents.on('will-attach-webview', event => event.preventDefault())
 }
 
-const ALLOWED_PERMISSIONS = new Set(['media', 'display-capture', 'clipboard-sanitized-write', 'fullscreen'])
+const ALLOWED_PERMISSIONS = new Set(['media', 'display-capture', 'clipboard-sanitized-write', 'fullscreen', 'notifications'])
 
 export function applySecurityPolicy(devUrl: string | undefined, distDir: string) {
   devOrigin = devUrl ? new URL(devUrl).origin : null

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Save, Settings2, Database, Mic, RefreshCw } from 'lucide-react';
+import { Save, Settings2, Database, Mic, RefreshCw, ListChecks } from 'lucide-react';
+import HealthPanel from './HealthPanel';
+import CalendarPanel from './CalendarPanel';
 import AsrSettingsPanel, { type AsrSettings } from './AsrSettingsPanel';
 import StoragePanel from './StoragePanel';
 import VoiceProfilePanel from './VoiceProfilePanel';
@@ -19,7 +21,7 @@ interface Settings extends AsrSettings, ExternalLlmSettings {
   leader_name?: string;
 }
 
-export default function SettingsView() {
+export default function SettingsView({ focus, onRunSetup }: { focus?: string | null; onRunSetup?: () => void } = {}) {
   const [settings, setSettings] = useState<Settings>({
     llm_api_url: '',
     llm_model: '',
@@ -155,6 +157,11 @@ export default function SettingsView() {
     }
   };
 
+  useEffect(() => {
+    if (isLoading || !focus) return;
+    document.getElementById(focus)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [focus, isLoading]);
+
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -169,13 +176,17 @@ export default function SettingsView() {
         <h1 style={{ marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Settings2 size={28} /> Configuration
         </h1>
-        <p>Manage your backend engines, custom executive jargon, and LLM integration.</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+          <p style={{ margin: 0 }}>Manage your backend engines, custom executive jargon, and LLM integration.</p>
+          {onRunSetup && <button className="btn btn-outline" onClick={onRunSetup}><ListChecks size={14} /> Setup guide</button>}
+        </div>
       </header>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        
+        <HealthPanel />
+
         {/* LLM Settings */}
-        <div className="glass-panel" style={{ padding: '2rem' }}>
+        <div id="settings-llm" className="glass-panel" style={{ padding: '2rem' }}>
           <h2 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Database size={20} color="var(--accent-primary)" /> Local LLM Engine (LM Studio or Ollama)
           </h2>
@@ -388,7 +399,7 @@ export default function SettingsView() {
         <ExternalLlmPanel value={settings} onChange={patch => setSettings(prev => ({ ...prev, ...patch }))} />
 
         {/* Audio Input Devices */}
-        <div className="glass-panel" style={{ padding: '2rem' }}>
+        <div id="settings-audio" className="glass-panel" style={{ padding: '2rem' }}>
           <h2 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Mic size={20} color="var(--accent-primary)" /> Audio Input Devices
           </h2>
@@ -447,7 +458,9 @@ export default function SettingsView() {
           </small>
         </div>
 
-        <VoiceProfilePanel />
+        <div id="settings-voice"><VoiceProfilePanel /></div>
+
+        <CalendarPanel />
 
         {/* Transcription Settings */}
         <div className="glass-panel" style={{ padding: '2rem' }}>

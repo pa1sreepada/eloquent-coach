@@ -28,6 +28,9 @@ import leadership
 import leadership_analysis
 import voice
 import rephrase
+import health
+import calendar_feed
+import search
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,6 +73,9 @@ app.include_router(prompter.router)
 app.include_router(leadership.router)
 app.include_router(voice.router)
 app.include_router(rephrase.router)
+app.include_router(health.router)
+app.include_router(calendar_feed.router)
+app.include_router(search.router)
 
 lm_client: LMStudioClient | None = None
 metrics_engine: MetricsEngine | None = None
@@ -184,6 +190,23 @@ def update_settings(settings: SettingsUpdate, db: Session = Depends(get_db)):
         lm_client.base_url = updates["llm_api_url"]
     # ASR/coach settings are read per meeting by realtime.MeetingSession.
     return {"status": "success", "message": "Settings updated"}
+
+class LeaderName(BaseModel):
+    leader_name: str
+
+
+@app.put("/settings/leader-name")
+def set_leader_name(body: LeaderName, db: Session = Depends(get_db)):
+    """Just the name, for first-run setup (PUT /settings replaces every setting)."""
+    name = re.sub(r"\s+", " ", body.leader_name).strip()[:80]
+    conf = db.query(AppConfig).filter(AppConfig.key == "leader_name").first()
+    if conf:
+        conf.value = name
+    else:
+        db.add(AppConfig(key="leader_name", value=name))
+    db.commit()
+    return {"leader_name": name}
+
 
 class ApiKeyUpdate(BaseModel):
     api_key: str | None = None

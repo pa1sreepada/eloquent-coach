@@ -351,3 +351,13 @@ p {
 .tp-runs td { padding: 5px 8px 5px 0; border-top: 1px solid var(--border-color); font-variant-numeric: tabular-nums; }
 .tp-runs .pace-fast { color: var(--color-question); } .tp-runs .pace-slow { color: #60a5fa; } .tp-runs .pace-ok { color: var(--color-structure); }
 .tp-tag { margin-left: 6px; font-size: 0.7rem; padding: 0 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); color: var(--text-tertiary); }
+
+/* Command palette (⌘K) */
+.sheet.palette { width: min(640px, 92vw); padding: 0; overflow: hidden; }
+.palette-row {
+  display: flex; align-items: center; gap: 0.7rem; padding: 0.5rem 1rem; cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.palette-row.active { background: rgba(59, 130, 246, 0.12); border-left-color: var(--accent-primary); }
+.palette-label { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-detail { font-size: 0.76rem; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

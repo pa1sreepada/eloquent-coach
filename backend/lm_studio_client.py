@@ -6,6 +6,7 @@ import httpx
 
 import external_llm
 import llm_provider
+import perf
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,13 @@ class LMStudioClient:
 
     async def complete(self, system_prompt: str, user_content: str | list[dict], *, max_tokens: int = 1000,
                        temperature: float = 0.3) -> str:
+        async with perf.Timer("task") as t:
+            out = await self._complete(system_prompt, user_content, max_tokens=max_tokens, temperature=temperature)
+            t.ok = bool(out.strip())
+        return out
+
+    async def _complete(self, system_prompt: str, user_content: str | list[dict], *, max_tokens: int = 1000,
+                        temperature: float = 0.3) -> str:
         """One chat completion; returns "" on failure. Strips <think> blocks from reasoning models.
         `user_content` is one user message, or a list of user/assistant turns for a multi-turn conversation.
         Uses the external frontier model instead of the local server when Settings turns it on."""

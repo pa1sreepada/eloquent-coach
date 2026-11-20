@@ -14,6 +14,7 @@ from typing import Awaitable, Callable
 import httpx
 
 import llm_provider
+import perf
 from telemetry import COMMITMENT_MARKERS, ME, OBJECTION_MARKERS, OWNER_MARKERS, SpeechTelemetry, Utterance
 
 logger = logging.getLogger(__name__)
@@ -607,9 +608,10 @@ class CoachingEngine:
 
         self.coord.busy(True)
         try:
-            data = await self.llm.json_completion(SYSTEM_PROMPT, self._build_prompt(trigger), CARD_SCHEMA,
-                                                  max_tokens=160 if self.coord.pressure() else 220,
-                                                  **({"on_text": on_text} if getattr(self.llm, "stream", False) else {}))
+            async with perf.Timer("coach"):
+                data = await self.llm.json_completion(SYSTEM_PROMPT, self._build_prompt(trigger), CARD_SCHEMA,
+                                                      max_tokens=160 if self.coord.pressure() else 220,
+                                                      **({"on_text": on_text} if getattr(self.llm, "stream", False) else {}))
         except asyncio.CancelledError:
             for i in list(pending):   # preempted mid-stream: keep (and persist) the headline-only card
                 await finish(i, "")

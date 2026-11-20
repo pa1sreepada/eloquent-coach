@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import appIcon from './assets/icon.svg';
-import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen, ScrollText, Compass, TrendingUp, Users, WandSparkles } from 'lucide-react';
+import { Mic, FileText, Settings, BarChart2, History, PanelLeftClose, PanelLeftOpen, ScrollText, Compass, TrendingUp, Users, WandSparkles, Search, Play, ListChecks, Activity, CalendarDays } from 'lucide-react';
 import LiveMeetingView from './components/LiveMeetingView';
 import DashboardView from './components/DashboardView';
 import SettingsView from './components/SettingsView';
@@ -11,6 +11,10 @@ import PrepareView, { type StartArgs } from './components/PrepareView';
 import GrowthView from './components/GrowthView';
 import LeadershipView from './components/LeadershipView';
 import RephraseView from './components/RephraseView';
+import CommandPalette, { type PaletteAction } from './components/CommandPalette';
+import SetupWizard from './components/SetupWizard';
+import { api } from './components/leadershipApi';
+import { audioConfigured, type Health } from './components/health';
 
 type Tab = 'dashboard' | 'live' | 'prepare' | 'rephrase' | 'history' | 'growth' | 'leadership' | 'reports' | 'teleprompter' | 'settings';
 
@@ -24,11 +28,33 @@ function App() {
   const [meetingAttendees, setMeetingAttendees] = useState('');
   const [selectedHistoryId, setSelectedHistoryId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  const openTab = (tab: Tab) => { setSettingsFocus(null); setActiveTab(tab); };
+  const openSettings = (section: string) => { setSettingsFocus(section); setActiveTab('settings'); };
+  const openMeeting = (id: number) => { setSelectedHistoryId(id); openTab('history'); };
+  const closeWizard = () => { localStorage.setItem('setupDone', '1'); setWizardOpen(false); };
+
+  // First run: show the setup guide once, unless everything is already in place.
+  useEffect(() => {
+    if (localStorage.getItem('setupDone')) return;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = () => api<Health>('/health/diagnostics').then(h => {
+      if (h.setup.some(st => !st.done && st.id !== 'calendar') || !audioConfigured()) setWizardOpen(true);
+      else localStorage.setItem('setupDone', '1');
+    }).catch(() => { if (++tries < 30) timer = setTimeout(check, 3000); });
+    void check();
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); }, [collapsed]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); setCollapsed(c => !c); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -72,8 +98,10 @@ function App() {
         {activeTab === 'dashboard' && (
           <DashboardView 
             onStartMeeting={startMeeting}
-            onViewHistory={() => setActiveTab('history')}
-            onOpen={(tab) => setActiveTab(tab)}
+            onViewHistory={() => openTab('history')}
+            onOpen={(tab) => openTab(tab)}
+            onSettings={openSettings}
+            isRecording={isRecording}
           />
         )}
         {activeTab === 'prepare' && <PrepareView onStartMeeting={startMeeting} />}
@@ -83,7 +111,7 @@ function App() {
         {activeTab === 'history' && <ReportsView initialMeetingId={selectedHistoryId} />}
         {activeTab === 'reports' && <DailyReportView />}
         {activeTab === 'teleprompter' && <TeleprompterView />}
-        {activeTab === 'settings' && <SettingsView />}
+        {activeTab === 'settings' && <SettingsView focus={settingsFocus} onRunSetup={() => setWizardOpen(true)} />}
       </div>
     );
   };
@@ -109,15 +137,17 @@ function App() {
               <div className="nav-section"><span className="label">{g.title}</span></div>
               {g.items.map(i => (
                 <NavItem key={i.tab} icon={i.icon} label={i.label} collapsed={collapsed}
-                  active={activeTab === i.tab} onClick={() => setActiveTab(i.tab)} />
+                  active={activeTab === i.tab} onClick={() => openTab(i.tab)} />
               ))}
             </div>
           ))}
         </nav>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <NavItem icon={<Search size={18} />} label="Search" collapsed={collapsed}
+            active={false} onClick={() => setPaletteOpen(true)} hint="⌘K" />
           <NavItem icon={<Settings size={18} />} label="Settings" collapsed={collapsed}
-            active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+            active={activeTab === 'settings'} onClick={() => openTab('settings')} />
           <NavItem icon={collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} collapsed={collapsed}
             active={false} onClick={() => setCollapsed(c => !c)} hint={'⌘\\'} />
@@ -142,8 +172,32 @@ function App() {
           {renderContent()}
         </div>
       </main>
+
+      {paletteOpen && (
+        <CommandPalette actions={paletteActions({ isRecording, openTab, openSettings, startQuick: () => startMeeting({ mode: localStorage.getItem('lastMode') || 'General Executive', agenda: '', prepNotes: '', title: '', attendees: '' }), openWizard: () => setWizardOpen(true) })}
+          onClose={() => setPaletteOpen(false)} onOpenMeeting={openMeeting} onOpenTab={openTab} />
+      )}
+      {wizardOpen && <SetupWizard onClose={closeWizard} onSettings={openSettings} />}
     </div>
   );
+}
+
+function paletteActions(o: { isRecording: boolean; openTab: (t: Tab) => void; openSettings: (s: string) => void; startQuick: () => void; openWizard: () => void }): PaletteAction[] {
+  const nav: PaletteAction[] = navGroups(o.isRecording).flatMap(g => g.items).map(i => ({
+    id: `go-${i.tab}`, label: `Go to ${i.label}`, icon: i.icon, keywords: i.tab, run: () => o.openTab(i.tab),
+  }));
+  return [
+    o.isRecording
+      ? { id: 'live', label: 'Back to the live meeting', icon: <Mic size={15} />, keywords: 'recording', run: () => o.openTab('live') }
+      : { id: 'start', label: 'Start a meeting now', hint: 'Uses your last meeting type', icon: <Play size={15} />, keywords: 'record coach session', run: o.startQuick },
+    { id: 'prep', label: 'Prepare for a meeting', icon: <Compass size={15} />, keywords: 'brief rehearse', run: () => o.openTab('prepare') },
+    { id: 'rephrase', label: 'Rephrase a message', icon: <WandSparkles size={15} />, keywords: 'rewrite email slack', run: () => o.openTab('rephrase') },
+    ...nav.filter(a => !['go-prepare', 'go-rephrase', 'go-live'].includes(a.id)),
+    { id: 'health', label: 'System health', hint: 'Is the coach fast enough right now?', icon: <Activity size={15} />, keywords: 'slow diagnostics status', run: () => o.openSettings('settings-health') },
+    { id: 'calendar', label: 'Connect calendar', icon: <CalendarDays size={15} />, keywords: 'ics outlook google', run: () => o.openSettings('settings-calendar') },
+    { id: 'setup', label: 'Open the setup guide', icon: <ListChecks size={15} />, keywords: 'onboarding wizard', run: o.openWizard },
+    { id: 'settings', label: 'Open Settings', icon: <Settings size={15} />, keywords: 'preferences', run: () => o.openTab('settings') },
+  ];
 }
 
 interface NavEntry { tab: Tab; label: string; icon: React.ReactNode }

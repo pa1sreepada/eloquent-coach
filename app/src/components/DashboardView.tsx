@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Play, ChevronDown, ChevronRight, Sparkles, AlertTriangle } from 'lucide-react';
-import { MODES } from './meetingModes';
+import { MODES, guessMode } from './meetingModes';
+import TodayPanel, { type CalEvent } from './TodayPanel';
+import { HealthBanner } from './HealthPanel';
 import type { StartArgs } from './PrepareView';
 import { api, errText, usePeople, type Reminders } from './leadershipApi';
 import { PeopleList } from './leadershipUi';
@@ -15,7 +17,7 @@ interface DashboardStats {
   fillers_per_session: number | null;
 }
 
-export default function DashboardView({ onStartMeeting, onViewHistory, onOpen }: { onStartMeeting: (a: StartArgs) => void, onViewHistory: () => void, onOpen: (tab: 'leadership' | 'growth' | 'prepare') => void }) {
+export default function DashboardView({ onStartMeeting, onViewHistory, onOpen, onSettings, isRecording = false }: { onStartMeeting: (a: StartArgs) => void, onViewHistory: () => void, onOpen: (tab: 'leadership' | 'growth' | 'prepare') => void, onSettings: (section: string) => void, isRecording?: boolean }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [mode, setMode] = useState(() => localStorage.getItem('lastMode') || 'General Executive');
@@ -77,6 +79,21 @@ export default function DashboardView({ onStartMeeting, onViewHistory, onOpen }:
     onStartMeeting({ mode, agenda: agenda.trim(), prepNotes: prepNotes.trim(), title: title.trim(), attendees: attendees.trim() });
   };
 
+  const fromEvent = (e: CalEvent) => {
+    const m = guessMode(e.title) ?? mode;
+    return { mode: m, title: e.title, attendees: e.attendees.join(', '), agenda: '', prepNotes: e.agenda ? `From the invite:\n${e.agenda}` : '' };
+  };
+  const useEvent = (e: CalEvent) => {
+    const f = fromEvent(e);
+    setMode(f.mode); setTitle(f.title); setAttendees(f.attendees);
+    if (f.prepNotes) { setPrepNotes(f.prepNotes); setShowPrep(true); }
+  };
+  const startEvent = (e: CalEvent) => {
+    const f = fromEvent(e);
+    localStorage.setItem('lastMode', f.mode);
+    onStartMeeting(f);
+  };
+
   const fmt = (v: number | null | undefined, suffix = '') => (v == null ? '—' : `${v}${suffix}`);
 
   return (
@@ -85,6 +102,9 @@ export default function DashboardView({ onStartMeeting, onViewHistory, onOpen }:
         <h1 style={{ fontSize: '1.9rem', marginBottom: '0.25rem' }}>{greeting()}</h1>
         <p style={{ margin: 0, fontSize: '1rem' }}>Set the context, then start. Coaching appears live and in the HUD.</p>
       </header>
+
+      <HealthBanner onOpen={() => onSettings('settings-health')} />
+      <TodayPanel isRecording={isRecording} onUse={useEvent} onStart={startEvent} onConnect={() => onSettings('settings-calendar')} />
 
       {/* New session */}
       <section className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
